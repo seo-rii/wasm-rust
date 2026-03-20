@@ -10,7 +10,7 @@ import {
 	wasi
 } from '@bjorn3/browser_wasi_shim';
 
-import type { RuntimeManifest } from './runtime-manifest.js';
+import type { NormalizedRuntimeManifest } from './runtime-manifest.js';
 import type { SharedRuntimeAssetFile } from './worker-protocol.js';
 
 const BITCODE_LENGTH_INDEX = 0;
@@ -364,7 +364,7 @@ class MirroredBitcodeDirectory extends Directory {
 }
 
 export async function buildPreopenedDirectories(
-	manifest: RuntimeManifest,
+	manifest: NormalizedRuntimeManifest,
 	sysrootAssets: SharedRuntimeAssetFile[],
 	sourceCode: string,
 	sharedBitcodeBuffer: SharedArrayBuffer
@@ -392,9 +392,9 @@ export async function buildPreopenedDirectories(
 	const workRoot = new MirroredBitcodeDirectory(
 		new Map<string, Inode>([
 			['main.rs', new File(new TextEncoder().encode(sourceCode))],
-			[manifest.workerBitcodeFile, new MirroredBitcodeFile(sharedBitcodeBuffer)]
+			[manifest.compiler.workerBitcodeFile, new MirroredBitcodeFile(sharedBitcodeBuffer)]
 		]),
-		manifest.workerBitcodeFile
+		manifest.compiler.workerBitcodeFile
 	);
 	const rootDirectory = new Directory(
 		new Map<string, Inode>([
@@ -407,12 +407,12 @@ export async function buildPreopenedDirectories(
 	const workDirectory = new MirroredBitcodePreopenDirectory(
 		'/work',
 		workRoot,
-		manifest.workerBitcodeFile
+		manifest.compiler.workerBitcodeFile
 	);
 	const rootPreopenDirectory = new MirroredBitcodePreopenDirectory(
 		'/',
 		rootDirectory,
-		`work/${manifest.workerBitcodeFile}`
+		`work/${manifest.compiler.workerBitcodeFile}`
 	);
 
 	return {

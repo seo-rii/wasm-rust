@@ -1,14 +1,19 @@
 import { resolveVersionedAssetUrl } from './asset-url.js';
 import { linkBitcodeWithLlvmWasm } from './browser-linker.js';
 import { createModuleWorker } from './module-worker.js';
-import { loadRuntimeManifest } from './runtime-manifest.js';
+import {
+	loadRuntimeManifest,
+	normalizeRuntimeManifest,
+	resolveTargetManifest
+} from './runtime-manifest.js';
 import { readMirroredBitcode } from './rustc-runtime.js';
 import { readWorkerFailure, WORKER_STATUS_BUFFER_BYTES } from './worker-status.js';
 import type { CompileWorkerMessage, CompileWorkerRequest } from './worker-protocol.js';
 import type {
 	BrowserRustCompileRequest,
 	BrowserRustCompilerResult,
-	CompilerDiagnostic
+	CompilerDiagnostic,
+	SupportedTargetTriple
 } from './types.js';
 
 export type {
@@ -21,6 +26,10 @@ export type {
 
 const SUPPORTED_EDITIONS = new Set(['2021', '2024']);
 const SUPPORTED_CRATE_TYPES = new Set(['bin']);
+const SUPPORTED_TARGET_TRIPLES = new Set<SupportedTargetTriple>([
+	'wasm32-wasip1',
+	'wasm32-wasip2'
+]);
 
 interface WorkerLike {
 	postMessage(message: unknown): void;
@@ -47,6 +56,10 @@ export interface CreateRustCompilerOptions {
 }
 
 type SettledCompileWorkerMessage = Exclude<CompileWorkerMessage, { type: 'log' }>;
+type BufferedCompileLog = {
+	level: 'log' | 'warn' | 'error' | 'debug';
+	message: string;
+};
 
 function describeWorkerErrorEvent(
 	event: Pick<ErrorEvent, 'message' | 'filename' | 'lineno' | 'colno' | 'error'>
@@ -96,6 +109,9 @@ function validateRequest(request: BrowserRustCompileRequest) {
 	if (request.crateType && !SUPPORTED_CRATE_TYPES.has(request.crateType)) {
 		return `unsupported browser compiler crate type: ${request.crateType}`;
 	}
+	if (request.targetTriple && !SUPPORTED_TARGET_TRIPLES.has(request.targetTriple)) {
+		return `unsupported browser compiler target: ${request.targetTriple}`;
+	}
 	return null;
 }
 
@@ -118,24 +134,37 @@ export async function compileRust(
 	}
 
 	const runtimeBaseUrl = resolveVersionedAssetUrl(import.meta.url, './runtime/');
-	const manifest = await (dependencies.loadManifest || loadRuntimeManifest)(
-		resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.json')
-	);
+	let loadedManifest;
+	try {
+		loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
+			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.v2.json')
+		);
+	} catch {
+		loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
+			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.json')
+		);
+	}
+	const manifest = normalizeRuntimeManifest(loadedManifest);
+	let targetConfig;
+	try {
+		targetConfig = resolveTargetManifest(manifest, request.targetTriple);
+	} catch (error) {
+		return makeFailure(error instanceof Error ? error.message : String(error));
+	}
 	const versionedModuleBaseUrl = new URL(import.meta.url);
 	versionedModuleBaseUrl.searchParams.set('v', manifest.version);
 	const versionedRuntimeBaseUrl = resolveVersionedAssetUrl(versionedModuleBaseUrl, './runtime/');
 	const compileTimeoutMs = request.prepare
-		? Math.max(manifest.compileTimeoutMs, 120_000)
-		: manifest.compileTimeoutMs;
-	const compileLogLines: string[] = [];
-	const recordCompileLog = (
+		? Math.max(manifest.compiler.compileTimeoutMs, 120_000)
+		: manifest.compiler.compileTimeoutMs;
+	const compileLogs: BufferedCompileLog[] = [];
+	const emitCompileLog = (
 		message: string,
 		level: 'log' | 'warn' | 'error' | 'debug' = 'log'
 	) => {
 		if (!request.log) {
 			return;
 		}
-		compileLogLines.push(message);
 		if (level === 'warn') {
 			console.warn(message);
 			return;
@@ -150,18 +179,34 @@ export async function compileRust(
 		}
 		console.log(message);
 	};
+	const recordPersistentCompileLog = (
+		message: string,
+		level: 'log' | 'warn' | 'error' | 'debug' = 'log'
+	) => {
+		compileLogs.push({
+			level,
+			message
+		});
+		emitCompileLog(message, level);
+	};
+	const flushAttemptCompileLogs = (attemptCompileLogs: BufferedCompileLog[]) => {
+		compileLogs.push(...attemptCompileLogs);
+		for (const record of attemptCompileLogs) {
+			emitCompileLog(record.message, record.level);
+		}
+	};
 	const mergeCompileStdout = (stdout?: string) => {
-		if (compileLogLines.length === 0) {
+		if (compileLogs.length === 0) {
 			return stdout || undefined;
 		}
-		const compileLogText = `${compileLogLines.join('\n')}\n`;
+		const compileLogText = `${compileLogs.map((entry) => entry.message).join('\n')}\n`;
 		if (!stdout) {
 			return compileLogText;
 		}
 		return `${compileLogText}${stdout}`;
 	};
-	recordCompileLog(
-		`[wasm-rust] manifest loaded timeout=${compileTimeoutMs}ms idle=${manifest.artifactIdleMs}ms memory=${manifest.rustcMemory.initialPages}/${manifest.rustcMemory.maximumPages}`
+	recordPersistentCompileLog(
+		`[wasm-rust] manifest loaded target=${targetConfig.targetTriple} timeout=${compileTimeoutMs}ms idle=${manifest.compiler.artifactIdleMs}ms memory=${manifest.compiler.rustcMemory.initialPages}/${manifest.compiler.rustcMemory.maximumPages}`
 	);
 	const now = dependencies.now || (() => Date.now());
 	const sleep =
@@ -171,7 +216,6 @@ export async function compileRust(
 		'worker script error',
 		'failed to fetch dynamically imported module',
 		'importing a module script failed',
-		'failed to fetch',
 		'memory access out of bounds',
 		'browser rustc timed out before producing llvm bitcode',
 		'operation does not support unaligned accesses',
@@ -185,9 +229,23 @@ export async function compileRust(
 		'the compiler unexpectedly panicked'
 	];
 	const maxBrowserAttempts = 5;
+	const helperThreadFailureGraceMs = Math.max(
+		1_000,
+		Math.min(4_000, manifest.compiler.artifactIdleMs * 2)
+	);
 	let lastFailure = makeFailure('browser rustc failed before emitting LLVM bitcode');
 
 	for (let attempt = 1; attempt <= maxBrowserAttempts; attempt += 1) {
+		const attemptCompileLogs: BufferedCompileLog[] = [];
+		const recordAttemptCompileLog = (
+			message: string,
+			level: 'log' | 'warn' | 'error' | 'debug' = 'log'
+		) => {
+			attemptCompileLogs.push({
+				level,
+				message
+			});
+		};
 		const workerUrl = resolveVersionedAssetUrl(versionedModuleBaseUrl, './compiler-worker.js');
 		workerUrl.searchParams.set('attempt', String(attempt));
 		const worker = (dependencies.createWorker ||
@@ -195,13 +253,13 @@ export async function compileRust(
 			workerUrl
 		);
 		const sharedBitcodeBuffer = new SharedArrayBuffer(
-			16 + manifest.workerSharedOutputBytes
+			16 + manifest.compiler.workerSharedOutputBytes
 		);
 		const sharedStatusBuffer = new SharedArrayBuffer(WORKER_STATUS_BUFFER_BYTES);
 		const workerResult = new Promise<SettledCompileWorkerMessage>((resolve, reject) => {
 			const handleMessage = (event: MessageEvent<CompileWorkerMessage>) => {
 				if (event.data.type === 'log') {
-					recordCompileLog(event.data.message);
+					recordAttemptCompileLog(event.data.message);
 					return;
 				}
 				worker.removeEventListener('message', handleMessage);
@@ -229,49 +287,60 @@ export async function compileRust(
 			sharedBitcodeBuffer,
 			sharedStatusBuffer
 		} satisfies CompileWorkerRequest);
-		recordCompileLog(
+		recordAttemptCompileLog(
 			`[wasm-rust] compile worker started attempt=${attempt}/${maxBrowserAttempts}`
 		);
 
-		const deadline = now() + compileTimeoutMs;
-		let lastSequence = 0;
-		let lastSequenceChange = now();
-		let settledMessage: SettledCompileWorkerMessage | null = null;
-		let workerBootstrapError: Error | null = null;
-		let attemptResult: BrowserRustCompilerResult | null = null;
+			const deadline = now() + compileTimeoutMs;
+			let lastSequence = 0;
+			let lastSequenceChange = now();
+			let settledMessage: SettledCompileWorkerMessage | null = null;
+			let workerBootstrapError: Error | null = null;
+			let attemptResult: BrowserRustCompilerResult | null = null;
+			let pendingHelperThreadFailure: string | null = null;
+			let pendingHelperThreadFailureObservedAt = 0;
 
-		while (!settledMessage && !workerBootstrapError && now() < deadline) {
-			const raced = await Promise.race([
-				workerResult
-					.then((message) => ({ type: 'message' as const, message }))
-					.catch((error) => ({ type: 'worker-error' as const, error })),
-				sleep(250).then(() => ({ type: 'tick' as const }))
-			]);
+			while (!settledMessage && !workerBootstrapError && now() < deadline) {
+				const raced = await Promise.race([
+					workerResult
+						.then((message) => ({ type: 'message' as const, message }))
+						.catch((error) => ({ type: 'worker-error' as const, error })),
+					sleep(250).then(() => ({ type: 'tick' as const }))
+				]);
 			if (raced.type === 'message') {
 				settledMessage = raced.message;
 				break;
 			}
-			if (raced.type === 'worker-error') {
-				workerBootstrapError =
-					raced.error instanceof Error ? raced.error : new Error(String(raced.error));
-				break;
-			}
-			const mirrored = readMirroredBitcode(sharedBitcodeBuffer);
-			const helperThreadFailure = readWorkerFailure(sharedStatusBuffer);
-			if (helperThreadFailure && mirrored.length === 0) {
-				worker.terminate();
-				attemptResult = makeFailure(helperThreadFailure);
-				break;
-			}
-			if (mirrored.writeSequence !== lastSequence) {
-				lastSequence = mirrored.writeSequence;
-				lastSequenceChange = now();
-				recordCompileLog(
-					`[wasm-rust] mirrored artifact updated seq=${mirrored.writeSequence} bytes=${mirrored.length} overflowed=${mirrored.overflowed}`
-				);
+				if (raced.type === 'worker-error') {
+					workerBootstrapError =
+						raced.error instanceof Error ? raced.error : new Error(String(raced.error));
+					break;
+				}
+				const mirrored = readMirroredBitcode(sharedBitcodeBuffer);
+				const helperThreadFailure = readWorkerFailure(sharedStatusBuffer);
+				if (helperThreadFailure && !pendingHelperThreadFailure) {
+					pendingHelperThreadFailure = helperThreadFailure;
+					pendingHelperThreadFailureObservedAt = now();
+				}
+				if (mirrored.length === 0 && pendingHelperThreadFailure) {
+					if (now() - pendingHelperThreadFailureObservedAt >= helperThreadFailureGraceMs) {
+						worker.terminate();
+						attemptResult = makeFailure(pendingHelperThreadFailure);
+						break;
+					}
+				} else if (mirrored.length > 0) {
+					pendingHelperThreadFailure = null;
+					pendingHelperThreadFailureObservedAt = 0;
+				}
+				if (mirrored.writeSequence !== lastSequence) {
+					lastSequence = mirrored.writeSequence;
+					lastSequenceChange = now();
+					recordAttemptCompileLog(
+						`[wasm-rust] mirrored artifact updated seq=${mirrored.writeSequence} bytes=${mirrored.length} overflowed=${mirrored.overflowed}`
+					);
 				continue;
 			}
-			if (mirrored.length > 0 && now() - lastSequenceChange >= manifest.artifactIdleMs) {
+			if (mirrored.length > 0 && now() - lastSequenceChange >= manifest.compiler.artifactIdleMs) {
 				worker.terminate();
 				if (mirrored.overflowed) {
 					attemptResult = makeFailure(
@@ -279,16 +348,17 @@ export async function compileRust(
 					);
 					break;
 				}
-				recordCompileLog('[wasm-rust] mirrored bitcode settled; linking through llvm-wasm');
-				let wasm: Uint8Array;
+				recordAttemptCompileLog('[wasm-rust] mirrored bitcode settled; linking through llvm-wasm');
+				let artifact: NonNullable<BrowserRustCompilerResult['artifact']>;
 				try {
-					wasm = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
+					artifact = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
 						mirrored.bytes,
 						manifest,
+						targetConfig,
 						versionedRuntimeBaseUrl.toString()
 					);
 				} catch (error) {
-					recordCompileLog(
+					recordAttemptCompileLog(
 						`[wasm-rust] llvm-wasm link failed after mirrored bitcode: ${error instanceof Error ? error.message : String(error)}`,
 						'error'
 					);
@@ -297,19 +367,18 @@ export async function compileRust(
 					);
 					break;
 				}
+				flushAttemptCompileLogs(attemptCompileLogs);
 				return {
 					success: true,
 					stdout: mergeCompileStdout(),
-					artifact: {
-						wasm
-					}
+					artifact
 				};
 			}
 		}
 
 		if (!attemptResult && workerBootstrapError) {
 			worker.terminate();
-			recordCompileLog(
+			recordAttemptCompileLog(
 				`[wasm-rust] compile worker bootstrap failed ${workerBootstrapError.message}`,
 				'debug'
 			);
@@ -320,19 +389,20 @@ export async function compileRust(
 			worker.terminate();
 			const mirrored = readMirroredBitcode(sharedBitcodeBuffer);
 			if (mirrored.length > 0 && !mirrored.overflowed) {
-				recordCompileLog(
+				recordAttemptCompileLog(
 					'[wasm-rust] compile timeout reached after mirrored bitcode appeared; proceeding to llvm-wasm link',
 					'debug'
 				);
-				let wasm: Uint8Array;
+				let artifact: NonNullable<BrowserRustCompilerResult['artifact']>;
 				try {
-					wasm = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
+					artifact = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
 						mirrored.bytes,
 						manifest,
+						targetConfig,
 						versionedRuntimeBaseUrl.toString()
 					);
 				} catch (error) {
-					recordCompileLog(
+					recordAttemptCompileLog(
 						`[wasm-rust] llvm-wasm link failed after timeout fallback: ${error instanceof Error ? error.message : String(error)}`,
 						'error'
 					);
@@ -341,12 +411,11 @@ export async function compileRust(
 					);
 					break;
 				}
+				flushAttemptCompileLogs(attemptCompileLogs);
 				return {
 					success: true,
 					stdout: mergeCompileStdout(),
-					artifact: {
-						wasm
-					}
+					artifact
 				};
 			}
 			if (mirrored.overflowed) {
@@ -356,7 +425,7 @@ export async function compileRust(
 					mergeCompileStdout()
 				);
 			} else {
-				recordCompileLog(
+				recordAttemptCompileLog(
 					'[wasm-rust] compile timed out before mirrored bitcode appeared',
 					'debug'
 				);
@@ -373,25 +442,25 @@ export async function compileRust(
 			const mirrored = readMirroredBitcode(sharedBitcodeBuffer);
 			if (settledMessage.type === 'error') {
 				if (mirrored.length > 0 && !mirrored.overflowed) {
-					recordCompileLog(
+					recordAttemptCompileLog(
 						'[wasm-rust] worker errored with mirrored bitcode present; linking through llvm-wasm'
 					);
 					try {
-						const linkedWasm = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
+						const artifact = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
 							mirrored.bytes,
 							manifest,
+							targetConfig,
 							versionedRuntimeBaseUrl.toString()
 						);
+						flushAttemptCompileLogs(attemptCompileLogs);
 						return {
 							success: true,
 							stdout: mergeCompileStdout(settledMessage.stdout),
 							diagnostics: settledMessage.diagnostics,
-							artifact: {
-								wasm: linkedWasm
-							}
+							artifact
 						};
 					} catch (error) {
-						recordCompileLog(
+						recordAttemptCompileLog(
 							`[wasm-rust] llvm-wasm link failed after worker error: ${error instanceof Error ? error.message : String(error)}`,
 							'error'
 						);
@@ -415,16 +484,17 @@ export async function compileRust(
 					);
 				}
 			} else if (mirrored.length > 0 && !mirrored.overflowed) {
-				recordCompileLog('[wasm-rust] worker settled with mirrored bitcode; linking through llvm-wasm');
-				let linkedWasm: Uint8Array | null = null;
+				recordAttemptCompileLog('[wasm-rust] worker settled with mirrored bitcode; linking through llvm-wasm');
+				let artifact: NonNullable<BrowserRustCompilerResult['artifact']> | null = null;
 				try {
-					linkedWasm = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
+					artifact = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
 						mirrored.bytes,
 						manifest,
+						targetConfig,
 						versionedRuntimeBaseUrl.toString()
 					);
 				} catch (error) {
-					recordCompileLog(
+					recordAttemptCompileLog(
 						`[wasm-rust] llvm-wasm link failed after worker settled: ${error instanceof Error ? error.message : String(error)}`,
 						'error'
 					);
@@ -435,7 +505,7 @@ export async function compileRust(
 					);
 				}
 				if (!attemptResult) {
-					if (!linkedWasm) {
+					if (!artifact) {
 						attemptResult = makeFailure(
 							'browser rustc emitted LLVM bitcode but llvm-wasm returned no wasm artifact',
 							settledMessage.diagnostics,
@@ -443,13 +513,12 @@ export async function compileRust(
 						);
 						continue;
 					}
+					flushAttemptCompileLogs(attemptCompileLogs);
 					return {
 						success: true,
 						stdout: mergeCompileStdout(settledMessage.stdout),
 						diagnostics: settledMessage.diagnostics,
-						artifact: {
-							wasm: linkedWasm
-						}
+						artifact
 					};
 				}
 			} else if (mirrored.overflowed) {
@@ -482,11 +551,13 @@ export async function compileRust(
 			attempt < maxBrowserAttempts &&
 			Boolean(attemptStderr) &&
 			retryableFailurePatterns.some((pattern) => normalizedAttemptStderr.includes(pattern));
-		if (request.log && shouldRetry) {
-			recordCompileLog(
-				`[wasm-rust] browser rustc attempt ${attempt}/${maxBrowserAttempts} failed; retrying reason=${JSON.stringify(attemptStderr)}`,
+		if (shouldRetry) {
+			recordPersistentCompileLog(
+				`[wasm-rust] browser rustc attempt ${attempt}/${maxBrowserAttempts} failed; retrying`,
 				'warn'
 			);
+		} else {
+			flushAttemptCompileLogs(attemptCompileLogs);
 		}
 		if (!shouldRetry) {
 			return attemptResult;

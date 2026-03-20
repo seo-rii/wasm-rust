@@ -7,6 +7,11 @@ import {
 	type CompilerDiagnostic,
 	type CreateRustCompilerOptions
 } from './compiler.js';
+import {
+	executeBrowserRustArtifact,
+	type BrowserExecutionOptions,
+	type BrowserExecutionResult
+} from './browser-execution.js';
 
 export type {
 	BrowserRustCompiler,
@@ -14,8 +19,11 @@ export type {
 	BrowserRustCompilerResult,
 	BrowserRustCompileRequest,
 	CompilerDiagnostic,
-	CreateRustCompilerOptions
+	CreateRustCompilerOptions,
+	BrowserExecutionOptions,
+	BrowserExecutionResult
 };
+export { executeBrowserRustArtifact };
 
 export async function createRustCompiler(
 	options?: CreateRustCompilerOptions

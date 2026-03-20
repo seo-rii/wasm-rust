@@ -1,5 +1,10 @@
-import type { RuntimeManifest } from './runtime-manifest.js';
-import { resolveRuntimeAssetUrl } from './runtime-manifest.js';
+import { componentizeCoreWasmToPreview2Component } from './browser-component-tools.js';
+import {
+	resolveRuntimeAssetUrl,
+	type NormalizedRuntimeManifest,
+	type RuntimeTargetConfig
+} from './runtime-manifest.js';
+import type { BrowserRustCompilerResult } from './types.js';
 
 function mkdirp(module: { FS: { mkdir(path: string): void } }, targetPath: string) {
 	const segments = targetPath.replace(/^\/+/, '').split('/').filter(Boolean);
@@ -34,10 +39,13 @@ function formatToolFailure(
 
 export async function linkBitcodeWithLlvmWasm(
 	bitcode: Uint8Array,
-	manifest: RuntimeManifest,
+	manifest: NormalizedRuntimeManifest,
+	target: RuntimeTargetConfig,
 	runtimeBaseUrl: string
-) {
-	const { default: Llc } = await import(resolveRuntimeAssetUrl(runtimeBaseUrl, manifest.llvm.llc));
+): Promise<NonNullable<BrowserRustCompilerResult['artifact']>> {
+	const { default: Llc } = await import(
+		resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.llc)
+	);
 	const llcStdout: string[] = [];
 	const llcStderr: string[] = [];
 	const llc = await Llc({
@@ -77,7 +85,9 @@ export async function linkBitcodeWithLlvmWasm(
 		);
 	}
 
-	const { default: Lld } = await import(resolveRuntimeAssetUrl(runtimeBaseUrl, manifest.llvm.lld));
+	const { default: Lld } = await import(
+		resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.lld)
+	);
 	const lldStdout: string[] = [];
 	const lldStderr: string[] = [];
 	const lld = await Lld({
@@ -107,14 +117,14 @@ export async function linkBitcodeWithLlvmWasm(
 
 	await addFile('/work/main.o', '', mainObject);
 	await addFile(
-		manifest.link.allocatorObjectRuntimePath,
-		manifest.link.allocatorObjectAsset
+		target.compile.link.allocatorObjectRuntimePath,
+		target.compile.link.allocatorObjectAsset
 	);
-	for (const entry of manifest.link.files) {
+	for (const entry of target.compile.link.files) {
 		await addFile(entry.runtimePath, entry.asset);
 	}
 	try {
-		await lld.callMain([...manifest.link.args]);
+		await lld.callMain([...target.compile.link.args]);
 	} catch (error) {
 		throw formatToolFailure(
 			'lld',
@@ -125,7 +135,20 @@ export async function linkBitcodeWithLlvmWasm(
 		);
 	}
 	try {
-		return lld.FS.readFile('/work/main.wasm');
+		const coreWasm = lld.FS.readFile('/work/main.wasm');
+		if (target.compile.kind === 'llvm-wasm+component-encoder') {
+			const component = await componentizeCoreWasmToPreview2Component(coreWasm, runtimeBaseUrl);
+			return {
+				wasm: component,
+				targetTriple: target.targetTriple,
+				format: 'component'
+			};
+		}
+		return {
+			wasm: coreWasm,
+			targetTriple: target.targetTriple,
+			format: target.artifactFormat
+		};
 	} catch (error) {
 		throw formatToolFailure(
 			'lld',

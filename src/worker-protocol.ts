@@ -1,4 +1,4 @@
-import type { RuntimeManifest } from './runtime-manifest.js';
+import type { NormalizedRuntimeManifest } from './runtime-manifest.js';
 import type { BrowserRustCompileRequest, CompilerDiagnostic } from './types.js';
 
 export interface SharedRuntimeAssetFile {
@@ -9,7 +9,7 @@ export interface SharedRuntimeAssetFile {
 export interface CompileWorkerRequest {
 	type: 'compile';
 	runtimeBaseUrl: string;
-	manifest: RuntimeManifest;
+	manifest: NormalizedRuntimeManifest;
 	request: BrowserRustCompileRequest;
 	sharedBitcodeBuffer: SharedArrayBuffer;
 	sharedStatusBuffer: SharedArrayBuffer;
@@ -45,7 +45,7 @@ export type CompileWorkerMessage =
 export interface RustcThreadWorkerRequest {
 	type: 'thread-start';
 	runtimeBaseUrl: string;
-	manifest: RuntimeManifest;
+	manifest: NormalizedRuntimeManifest;
 	sourceCode: string;
 	log: boolean;
 	sharedBitcodeBuffer: SharedArrayBuffer;
@@ -63,7 +63,7 @@ export interface RustcThreadWorkerRequest {
 export interface RustcThreadPoolInitRequest {
 	type: 'thread-pool-init';
 	runtimeBaseUrl: string;
-	manifest: RuntimeManifest;
+	manifest: NormalizedRuntimeManifest;
 	sourceCode: string;
 	log: boolean;
 	sharedBitcodeBuffer: SharedArrayBuffer;

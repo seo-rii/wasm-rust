@@ -62,12 +62,14 @@
 		}
 
 		input,
+		select,
 		textarea,
 		button {
 			font: inherit;
 		}
 
 		input,
+		select,
 		textarea {
 			border: 1px solid rgba(22, 33, 51, 0.16);
 			border-radius: 12px;
@@ -180,6 +182,13 @@
 				<label>
 					Edition
 					<input id="edition" type="text" value="2024" />
+				</label>
+				<label>
+					Target triple
+					<select id="target-triple">
+						<option value="wasm32-wasip1">wasm32-wasip1</option>
+						<option value="wasm32-wasip2">wasm32-wasip2</option>
+					</select>
 				</label>
 				<label>
 					<input id="enable-logs" type="checkbox" checked />

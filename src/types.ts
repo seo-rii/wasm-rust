@@ -1,3 +1,6 @@
+export type SupportedTargetTriple = 'wasm32-wasip1' | 'wasm32-wasip2';
+export type BrowserRustArtifactFormat = 'core-wasm' | 'component';
+
 export interface CompilerDiagnostic {
 	lineNumber: number;
 	columnNumber: number;
@@ -11,6 +14,7 @@ export interface BrowserRustCompileRequest {
 	mode?: string;
 	edition?: string;
 	crateType?: string;
+	targetTriple?: SupportedTargetTriple;
 	log?: boolean;
 	prepare?: boolean;
 }
@@ -23,6 +27,8 @@ export interface BrowserRustCompilerResult {
 	artifact?: {
 		wasm?: Uint8Array | ArrayBuffer;
 		wat?: string;
+		targetTriple: SupportedTargetTriple;
+		format: BrowserRustArtifactFormat;
 	};
 }
 

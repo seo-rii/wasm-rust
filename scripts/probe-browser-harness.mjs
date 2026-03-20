@@ -26,6 +26,37 @@ const runTimeoutMs = Number(
 );
 const chromiumExecutable = process.env.WASM_RUST_CHROMIUM_EXECUTABLE;
 
+function parseTargetTripleList(value) {
+	return [...new Set(value.split(',').map((entry) => entry.trim()).filter(Boolean))];
+}
+
+async function resolveHarnessTargetTriples() {
+	if (process.env.WASM_RUST_BROWSER_HARNESS_TARGET_TRIPLES) {
+		return parseTargetTripleList(process.env.WASM_RUST_BROWSER_HARNESS_TARGET_TRIPLES);
+	}
+	const runtimeManifestV2Path = path.join(
+		projectRoot,
+		'dist',
+		'runtime',
+		'runtime-manifest.v2.json'
+	);
+	try {
+		const manifest = JSON.parse(await fs.readFile(runtimeManifestV2Path, 'utf8'));
+		const targets = Object.keys(manifest.targets || {});
+		if (targets.length > 0) {
+			return targets;
+		}
+	} catch {}
+	const runtimeManifestV1Path = path.join(
+		projectRoot,
+		'dist',
+		'runtime',
+		'runtime-manifest.json'
+	);
+	const legacyManifest = JSON.parse(await fs.readFile(runtimeManifestV1Path, 'utf8'));
+	return [legacyManifest.targetTriple || 'wasm32-wasip1'];
+}
+
 async function resolveChromiumExecutable() {
 	if (chromiumExecutable) {
 		return chromiumExecutable;
@@ -47,6 +78,7 @@ async function main() {
 	const server = await startBrowserHarnessServer();
 	const consoleMessages = [];
 	const pageErrors = [];
+	const targetTriples = await resolveHarnessTargetTriples();
 	let browser;
 
 	try {
@@ -87,76 +119,72 @@ async function main() {
 		if (maximumPages !== undefined) {
 			harnessOptions.maximumPages = maximumPages;
 		}
-		let result;
-		try {
-			result = await page.evaluate(
-				async (options) => {
-					try {
-						return {
-							ok: true,
-							result: await window.runWasmRustHarness(options)
-						};
-					} catch (error) {
-						return {
-							ok: false,
-							error: {
-								name: error instanceof Error ? error.name : typeof error,
-								message: error instanceof Error ? error.message : String(error),
-								stack: error instanceof Error ? error.stack || '' : ''
-							}
-						};
+		const targetResults = [];
+		for (const targetTriple of targetTriples) {
+			let result;
+			try {
+				result = await page.evaluate(
+					async (options) => {
+						try {
+							return {
+								ok: true,
+								result: await window.runWasmRustHarness(options)
+							};
+						} catch (error) {
+							return {
+								ok: false,
+								error: {
+									name: error instanceof Error ? error.name : typeof error,
+									message: error instanceof Error ? error.message : String(error),
+									stack: error instanceof Error ? error.stack || '' : ''
+								}
+							};
+						}
+					},
+					{
+						...harnessOptions,
+						targetTriple
 					}
-				},
-				harnessOptions
-			);
-		} catch (error) {
-			console.log(
-				JSON.stringify(
-					{
-						success: false,
-						harnessUrl,
-						executablePath,
-						runTimeoutMs,
-						error: error instanceof Error ? error.message : String(error),
-						consoleMessages,
-						pageErrors
-					},
-					null,
-					2
-				)
-			);
-			process.exitCode = 1;
-			return;
-		}
-		if (!result.ok) {
-			console.log(
-				JSON.stringify(
-					{
-						success: false,
-						harnessUrl,
-						executablePath,
-						runTimeoutMs,
-						error: result.error,
-						consoleMessages,
-						pageErrors
-					},
-					null,
-					2
-				)
-			);
-			process.exitCode = 1;
-			return;
+				);
+			} catch (error) {
+				console.log(
+					JSON.stringify(
+						{
+							success: false,
+							harnessUrl,
+							executablePath,
+							runTimeoutMs,
+							targetTriple,
+							error: error instanceof Error ? error.message : String(error),
+							consoleMessages,
+							pageErrors
+						},
+						null,
+						2
+					)
+				);
+				process.exitCode = 1;
+				return;
+			}
+			targetResults.push({
+				targetTriple,
+				...result
+			});
 		}
 
 		const output = {
-			success:
-				Boolean(result.result.compile?.success) &&
-				result.result.runtime?.exitCode === 0 &&
-				result.result.runtime?.stdout === 'hi\n',
+			success: targetResults.every(
+				(entry) =>
+					entry.ok &&
+					Boolean(entry.result.compile?.success) &&
+					entry.result.runtime?.exitCode === 0 &&
+					entry.result.runtime?.stdout === 'hi\n'
+			),
 			harnessUrl,
 			executablePath,
 			runTimeoutMs,
-			result: result.result,
+			targets: targetResults,
+			result: targetResults[0]?.result || null,
 			consoleMessages,
 			pageErrors
 		};

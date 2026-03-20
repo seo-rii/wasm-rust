@@ -1,14 +1,6 @@
 import { createRustCompiler } from '/dist/index.js';
-import { loadRuntimeManifest } from '/dist/runtime-manifest.js';
-import {
-	Fd,
-	File,
-	Inode,
-	OpenFile,
-	PreopenDirectory,
-	WASI,
-	wasi
-} from '/dist/vendor/browser_wasi_shim/index.js';
+import { executeBrowserRustArtifact } from '/dist/browser-execution.js';
+import { loadRuntimeManifest, normalizeRuntimeManifest } from '/dist/runtime-manifest.js';
 
 const sourceInput = document.querySelector('#source');
 const compileTimeoutInput = document.querySelector('#compile-timeout');
@@ -16,6 +8,7 @@ const artifactIdleInput = document.querySelector('#artifact-idle');
 const memoryInitialInput = document.querySelector('#memory-initial');
 const memoryMaximumInput = document.querySelector('#memory-maximum');
 const editionInput = document.querySelector('#edition');
+const targetTripleInput = document.querySelector('#target-triple');
 const enableLogsInput = document.querySelector('#enable-logs');
 const runButton = document.querySelector('#run-button');
 const resultPanel = document.querySelector('#result-panel');
@@ -29,47 +22,6 @@ const state = {
 };
 
 let manifestDefaultsPromise;
-
-class CaptureFd extends Fd {
-	constructor() {
-		super();
-		this.ino = Inode.issue_ino();
-		this.decoder = new TextDecoder();
-		this.chunks = [];
-	}
-
-	fd_filestat_get() {
-		return {
-			ret: wasi.ERRNO_SUCCESS,
-			filestat: new wasi.Filestat(this.ino, wasi.FILETYPE_CHARACTER_DEVICE, 0n)
-		};
-	}
-
-	fd_fdstat_get() {
-		const fdstat = new wasi.Fdstat(wasi.FILETYPE_CHARACTER_DEVICE, 0);
-		fdstat.fs_rights_base = BigInt(wasi.RIGHTS_FD_WRITE);
-		return {
-			ret: wasi.ERRNO_SUCCESS,
-			fdstat
-		};
-	}
-
-	fd_write(data) {
-		this.chunks.push(this.decoder.decode(data, { stream: true }));
-		return {
-			ret: wasi.ERRNO_SUCCESS,
-			nwritten: data.byteLength
-		};
-	}
-
-	getText() {
-		const trailing = this.decoder.decode();
-		if (trailing) {
-			this.chunks.push(trailing);
-		}
-		return this.chunks.join('');
-	}
-}
 
 function appendLog(message, kind = 'info') {
 	const line = `[${new Date().toISOString()}][${kind}] ${message}`;
@@ -88,7 +40,10 @@ function appendLog(message, kind = 'info') {
 
 async function loadHarnessManifest() {
 	if (!manifestDefaultsPromise) {
-		manifestDefaultsPromise = loadRuntimeManifest(runtimeManifestUrl);
+		const v2Url = new URL('/dist/runtime/runtime-manifest.v2.json', window.location.href);
+		manifestDefaultsPromise = loadRuntimeManifest(v2Url)
+			.catch(() => loadRuntimeManifest(runtimeManifestUrl))
+			.then((manifest) => normalizeRuntimeManifest(manifest));
 	}
 	return manifestDefaultsPromise;
 }
@@ -98,51 +53,37 @@ function readNumericInput(input, fallback) {
 	return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-async function runWasiModule(wasmArtifact) {
-	const bytes =
-		wasmArtifact instanceof Uint8Array ? wasmArtifact : new Uint8Array(wasmArtifact);
-	const stdout = new CaptureFd();
-	const stderr = new CaptureFd();
-	const wasiInstance = new WASI(['/work/main.wasm'], [], [
-		new OpenFile(new File(new Uint8Array(), { readonly: true })),
-		stdout,
-		stderr,
-		new PreopenDirectory('/tmp', new Map())
-	]);
-	const module = await WebAssembly.compile(bytes);
-	const instance = await WebAssembly.instantiate(module, {
-		wasi_snapshot_preview1: wasiInstance.wasiImport
-	});
-	let exitCode = null;
-	try {
-		exitCode = wasiInstance.start(instance);
-	} catch (error) {
-		appendLog(`browser runtime threw: ${error instanceof Error ? error.message : String(error)}`, 'error');
-		throw error;
+function syncTargetSelector(manifest) {
+	const availableTargets = new Set(Object.keys(manifest.targets));
+	for (const option of Array.from(targetTripleInput.options)) {
+		option.disabled = !availableTargets.has(option.value);
 	}
-	return {
-		exitCode,
-		stdout: stdout.getText(),
-		stderr: stderr.getText()
-	};
+	if (!availableTargets.has(targetTripleInput.value)) {
+		targetTripleInput.value = manifest.defaultTargetTriple;
+	}
+}
+
+async function runWasiModule(wasmArtifact) {
+	return executeBrowserRustArtifact(wasmArtifact, new URL('/dist/runtime/', window.location.href).toString());
 }
 
 function readHarnessOptions(baseManifest, overrides = {}) {
 	return {
 		code: overrides.code ?? sourceInput.value,
 		edition: overrides.edition ?? editionInput.value,
+		targetTriple: overrides.targetTriple ?? targetTripleInput.value ?? baseManifest.defaultTargetTriple,
 		compileTimeoutMs:
 			overrides.compileTimeoutMs ??
-			readNumericInput(compileTimeoutInput, baseManifest.compileTimeoutMs),
+			readNumericInput(compileTimeoutInput, baseManifest.compiler.compileTimeoutMs),
 		artifactIdleMs:
 			overrides.artifactIdleMs ??
-			readNumericInput(artifactIdleInput, baseManifest.artifactIdleMs),
+			readNumericInput(artifactIdleInput, baseManifest.compiler.artifactIdleMs),
 		initialPages:
 			overrides.initialPages ??
-			readNumericInput(memoryInitialInput, baseManifest.rustcMemory.initialPages),
+			readNumericInput(memoryInitialInput, baseManifest.compiler.rustcMemory.initialPages),
 		maximumPages:
 			overrides.maximumPages ??
-			readNumericInput(memoryMaximumInput, baseManifest.rustcMemory.maximumPages),
+			readNumericInput(memoryMaximumInput, baseManifest.compiler.rustcMemory.maximumPages),
 		log: overrides.log ?? enableLogsInput.checked
 	};
 }
@@ -154,19 +95,22 @@ async function runWasmRustHarness(overrides = {}) {
 	logPanel.textContent = '';
 	runPill.textContent = 'status: running';
 	appendLog(
-		`starting compile timeout=${options.compileTimeoutMs} idle=${options.artifactIdleMs} memory=${options.initialPages}/${options.maximumPages}`
+		`starting compile target=${options.targetTriple} timeout=${options.compileTimeoutMs} idle=${options.artifactIdleMs} memory=${options.initialPages}/${options.maximumPages}`
 	);
 
 	const compiler = await createRustCompiler({
 		dependencies: {
 			loadManifest: async () => ({
 				...baseManifest,
-				compileTimeoutMs: options.compileTimeoutMs,
-				artifactIdleMs: options.artifactIdleMs,
-				rustcMemory: {
-					...baseManifest.rustcMemory,
-					initialPages: options.initialPages,
-					maximumPages: options.maximumPages
+				compiler: {
+					...baseManifest.compiler,
+					compileTimeoutMs: options.compileTimeoutMs,
+					artifactIdleMs: options.artifactIdleMs,
+					rustcMemory: {
+						...baseManifest.compiler.rustcMemory,
+						initialPages: options.initialPages,
+						maximumPages: options.maximumPages
+					}
 				}
 			})
 		}
@@ -176,12 +120,14 @@ async function runWasmRustHarness(overrides = {}) {
 		code: options.code,
 		edition: options.edition,
 		crateType: 'bin',
+		targetTriple: options.targetTriple,
 		log: options.log
 	});
 	const result = {
 		crossOriginIsolated: window.crossOriginIsolated,
 		elapsedMs: Math.round(performance.now() - startedAt),
 		manifest: {
+			targetTriple: options.targetTriple,
 			compileTimeoutMs: options.compileTimeoutMs,
 			artifactIdleMs: options.artifactIdleMs,
 			initialPages: options.initialPages,
@@ -193,14 +139,16 @@ async function runWasmRustHarness(overrides = {}) {
 			stderr: compileResult.stderr ?? '',
 			diagnostics: compileResult.diagnostics ?? [],
 			hasWasm: Boolean(compileResult.artifact?.wasm),
-			hasWat: Boolean(compileResult.artifact?.wat)
+			hasWat: Boolean(compileResult.artifact?.wat),
+			targetTriple: compileResult.artifact?.targetTriple ?? options.targetTriple,
+			format: compileResult.artifact?.format ?? null
 		},
 		runtime: null
 	};
 
 	if (compileResult.success && compileResult.artifact?.wasm) {
 		appendLog('compile succeeded; executing WASI module in browser');
-		result.runtime = await runWasiModule(compileResult.artifact.wasm);
+		result.runtime = await runWasiModule(compileResult.artifact);
 	} else {
 		appendLog(
 			`compile failed: ${compileResult.stderr || 'missing artifact from compiler result'}`,
@@ -218,10 +166,12 @@ async function runWasmRustHarness(overrides = {}) {
 isolationPill.textContent = `crossOriginIsolated: ${String(window.crossOriginIsolated)}`;
 loadHarnessManifest()
 	.then((manifest) => {
-		compileTimeoutInput.value = String(manifest.compileTimeoutMs);
-		artifactIdleInput.value = String(manifest.artifactIdleMs);
-		memoryInitialInput.value = String(manifest.rustcMemory.initialPages);
-		memoryMaximumInput.value = String(manifest.rustcMemory.maximumPages);
+		compileTimeoutInput.value = String(manifest.compiler.compileTimeoutMs);
+		artifactIdleInput.value = String(manifest.compiler.artifactIdleMs);
+		memoryInitialInput.value = String(manifest.compiler.rustcMemory.initialPages);
+		memoryMaximumInput.value = String(manifest.compiler.rustcMemory.maximumPages);
+		syncTargetSelector(manifest);
+		targetTripleInput.value = manifest.defaultTargetTriple;
 	})
 	.catch((error) => {
 		appendLog(
