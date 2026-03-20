@@ -60,16 +60,30 @@ describe('browser harness probe', () => {
 			const { stdout, stderr } = await runNode(['./scripts/probe-browser-harness.mjs']);
 			const result = JSON.parse((stdout.trim() || stderr.trim()) as string) as {
 				success: boolean;
-				result: {
-					compile: { success: boolean };
-					runtime: { stdout: string; exitCode: number | null } | null;
-				};
+				targets: Array<{
+					targetTriple: string;
+					ok: boolean;
+					result: {
+						compile: { success: boolean; format: string | null };
+						runtime: { stdout: string; exitCode: number | null } | null;
+					};
+				}>;
 			};
 
 			expect(result.success).toBe(true);
-			expect(result.result.compile.success).toBe(true);
-			expect(result.result.runtime?.stdout).toBe('hi\n');
-			expect(result.result.runtime?.exitCode).toBe(0);
+			expect(result.targets.length).toBeGreaterThan(0);
+			for (const targetResult of result.targets) {
+				expect(targetResult.ok).toBe(true);
+				expect(targetResult.result.compile.success).toBe(true);
+				expect(targetResult.result.runtime?.stdout).toBe('hi\n');
+				expect(targetResult.result.runtime?.exitCode).toBe(0);
+				if (targetResult.targetTriple === 'wasm32-wasip2') {
+					expect(targetResult.result.compile.format).toBe('component');
+				}
+				if (targetResult.targetTriple === 'wasm32-wasip1') {
+					expect(targetResult.result.compile.format).toBe('core-wasm');
+				}
+			}
 		},
 		780_000
 	);

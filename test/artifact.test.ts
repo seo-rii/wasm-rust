@@ -27,7 +27,11 @@ describe('wasm-rust artifact handling', () => {
 				createWorker: () => worker,
 				linkBitcode: async (receivedBitcode) => {
 					expect(receivedBitcode).toEqual(bitcode);
-					return new Uint8Array([5, 4, 3, 2, 1]);
+					return {
+						wasm: new Uint8Array([5, 4, 3, 2, 1]),
+						targetTriple: 'wasm32-wasip1',
+						format: 'core-wasm'
+					};
 				}
 			}
 		);
@@ -36,6 +40,8 @@ describe('wasm-rust artifact handling', () => {
 		expect(result.success).toBe(true);
 		expect(result.stderr).toBeUndefined();
 		expect(result.artifact?.wasm).toEqual(new Uint8Array([5, 4, 3, 2, 1]));
+		expect(result.artifact?.targetTriple).toBe('wasm32-wasip1');
+		expect(result.artifact?.format).toBe('core-wasm');
 	});
 
 	it('fails when the mirrored bitcode buffer overflows', async () => {

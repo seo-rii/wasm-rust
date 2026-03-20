@@ -1,13 +1,14 @@
 import { File, wasi } from '@bjorn3/browser_wasi_shim';
 import { describe, expect, it } from 'vitest';
 
+import { normalizeRuntimeManifest } from '../src/runtime-manifest.js';
 import { buildPreopenedDirectories, readMirroredBitcode } from '../src/rustc-runtime.js';
 import { createRuntimeManifest } from './helpers.js';
 
 describe('mirrored bitcode file', () => {
 	it('preserves the shared mirror when rustc renames a temp bitcode file into place', async () => {
 		const sharedBitcodeBuffer = new SharedArrayBuffer(16 + 256);
-		const manifest = createRuntimeManifest();
+		const manifest = normalizeRuntimeManifest(createRuntimeManifest());
 		const { fds } = await buildPreopenedDirectories(
 			manifest,
 			[],
@@ -27,8 +28,12 @@ describe('mirrored bitcode file', () => {
 		expect(tempUnlink.ret).toBe(wasi.ERRNO_SUCCESS);
 		expect(tempUnlink.inode_obj).toBeInstanceOf(File);
 
-		expect(workDirectory.path_unlink_file(manifest.workerBitcodeFile)).toBe(wasi.ERRNO_SUCCESS);
-		expect(workDirectory.path_link(manifest.workerBitcodeFile, tempUnlink.inode_obj, true)).toBe(
+		expect(workDirectory.path_unlink_file(manifest.compiler.workerBitcodeFile)).toBe(
+			wasi.ERRNO_SUCCESS
+		);
+		expect(
+			workDirectory.path_link(manifest.compiler.workerBitcodeFile, tempUnlink.inode_obj, true)
+		).toBe(
 			wasi.ERRNO_SUCCESS
 		);
 
@@ -39,7 +44,7 @@ describe('mirrored bitcode file', () => {
 
 	it('preserves the shared mirror when the root preopen renames work bitcode into place', async () => {
 		const sharedBitcodeBuffer = new SharedArrayBuffer(16 + 256);
-		const manifest = createRuntimeManifest();
+		const manifest = normalizeRuntimeManifest(createRuntimeManifest());
 		const { fds } = await buildPreopenedDirectories(
 			manifest,
 			[],
@@ -58,11 +63,15 @@ describe('mirrored bitcode file', () => {
 		expect(tempUnlink.ret).toBe(wasi.ERRNO_SUCCESS);
 		expect(tempUnlink.inode_obj).toBeInstanceOf(File);
 
-		expect(rootDirectory.path_unlink_file(`work/${manifest.workerBitcodeFile}`)).toBe(
+		expect(rootDirectory.path_unlink_file(`work/${manifest.compiler.workerBitcodeFile}`)).toBe(
 			wasi.ERRNO_SUCCESS
 		);
 		expect(
-			rootDirectory.path_link(`work/${manifest.workerBitcodeFile}`, tempUnlink.inode_obj, true)
+			rootDirectory.path_link(
+				`work/${manifest.compiler.workerBitcodeFile}`,
+				tempUnlink.inode_obj,
+				true
+			)
 		).toBe(wasi.ERRNO_SUCCESS);
 
 		const mirrored = readMirroredBitcode(sharedBitcodeBuffer);
@@ -72,7 +81,7 @@ describe('mirrored bitcode file', () => {
 
 	it('preserves the shared mirror after reopening /work from the root preopen', async () => {
 		const sharedBitcodeBuffer = new SharedArrayBuffer(16 + 256);
-		const manifest = createRuntimeManifest();
+		const manifest = normalizeRuntimeManifest(createRuntimeManifest());
 		const { fds } = await buildPreopenedDirectories(
 			manifest,
 			[],
@@ -94,8 +103,12 @@ describe('mirrored bitcode file', () => {
 		expect(tempUnlink.ret).toBe(wasi.ERRNO_SUCCESS);
 		expect(tempUnlink.inode_obj).toBeInstanceOf(File);
 
-		expect(workDirectory.path_unlink_file(manifest.workerBitcodeFile)).toBe(wasi.ERRNO_SUCCESS);
-		expect(workDirectory.path_link(manifest.workerBitcodeFile, tempUnlink.inode_obj, true)).toBe(
+		expect(workDirectory.path_unlink_file(manifest.compiler.workerBitcodeFile)).toBe(
+			wasi.ERRNO_SUCCESS
+		);
+		expect(
+			workDirectory.path_link(manifest.compiler.workerBitcodeFile, tempUnlink.inode_obj, true)
+		).toBe(
 			wasi.ERRNO_SUCCESS
 		);
 

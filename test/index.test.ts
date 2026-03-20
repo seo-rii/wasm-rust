@@ -24,7 +24,11 @@ describe('wasm-rust compiler contract', () => {
 					}),
 				linkBitcode: async (receivedBitcode) => {
 					expect(receivedBitcode).toEqual(bitcode);
-					return new Uint8Array([9, 8, 7]);
+					return {
+						wasm: new Uint8Array([9, 8, 7]),
+						targetTriple: 'wasm32-wasip1',
+						format: 'core-wasm'
+					};
 				},
 				now: () => clock,
 				sleep: async (milliseconds) => {
@@ -40,6 +44,8 @@ describe('wasm-rust compiler contract', () => {
 
 		expect(result.success).toBe(true);
 		expect(result.artifact?.wasm).toEqual(new Uint8Array([9, 8, 7]));
+		expect(result.artifact?.targetTriple).toBe('wasm32-wasip1');
+		expect(result.artifact?.format).toBe('core-wasm');
 		expect(result.artifact?.wat).toBeUndefined();
 	});
 });

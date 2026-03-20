@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { compileRust } from '../src/compiler.js';
-import { FakeWorker, createRuntimeManifest, mirrorBitcode } from './helpers.js';
+import { markWorkerFailure } from '../src/worker-status.js';
+import {
+	FakeWorker,
+	createRuntimeManifest,
+	createRuntimeManifestV2,
+	mirrorBitcode
+} from './helpers.js';
 
 function createRetryDependencies(workers: FakeWorker[]) {
 	let clock = 0;
@@ -50,7 +56,11 @@ describe('compileRust retry behavior', () => {
 				...createRetryDependencies([firstWorker, secondWorker]).dependencies,
 				linkBitcode: async (receivedBitcode) => {
 					linkBitcodeCalls.push(receivedBitcode);
-					return new Uint8Array([9, 8, 7]);
+					return {
+						wasm: new Uint8Array([9, 8, 7]),
+						targetTriple: 'wasm32-wasip1',
+						format: 'core-wasm'
+					};
 				}
 			}
 		);
@@ -82,7 +92,11 @@ describe('compileRust retry behavior', () => {
 			},
 			{
 				...createRetryDependencies([firstWorker, secondWorker]).dependencies,
-				linkBitcode: async () => new Uint8Array([7, 7, 7])
+				linkBitcode: async () => ({
+					wasm: new Uint8Array([7, 7, 7]),
+					targetTriple: 'wasm32-wasip1',
+					format: 'core-wasm'
+				})
 			}
 		);
 
@@ -90,6 +104,65 @@ describe('compileRust retry behavior', () => {
 		expect(result.artifact?.wasm).toEqual(new Uint8Array([7, 7, 7]));
 		expect(firstWorker.terminated).toBe(true);
 		expect(secondWorker.terminated).toBe(true);
+	});
+
+	it('waits for mirrored bitcode after a helper-thread failure report before giving up on the attempt', async () => {
+		const bitcode = new Uint8Array([0xba, 0xdc, 0x0f, 0xfe]);
+		const worker = new FakeWorker((message, currentWorker) => {
+			markWorkerFailure(
+				message.sharedStatusBuffer,
+				'browser rustc helper thread failed before producing LLVM bitcode: memory access out of bounds'
+			);
+			setTimeout(() => {
+				mirrorBitcode(message.sharedBitcodeBuffer, bitcode);
+				currentWorker.emitMessage({
+					type: 'result',
+					exitCode: 0,
+					stdout: 'worker stdout',
+					stderr: ''
+				});
+			}, 50);
+		});
+
+		const result = await compileRust(
+			{
+				code: 'fn main() { println!("hi"); }',
+				edition: '2024',
+				crateType: 'bin',
+				targetTriple: 'wasm32-wasip2',
+				log: true
+			},
+			{
+				loadManifest: async () =>
+					createRuntimeManifestV2({
+						compileTimeoutMs: 2_000,
+						artifactIdleMs: 200
+					}),
+				createWorker: () => worker,
+				now: () => Date.now(),
+				sleep: async () => {
+					await new Promise((resolve) => setTimeout(resolve, 10));
+				},
+				linkBitcode: async (receivedBitcode) => {
+					expect(receivedBitcode).toEqual(bitcode);
+					return {
+						wasm: new Uint8Array([4, 2, 4, 2]),
+						targetTriple: 'wasm32-wasip2',
+						format: 'component'
+					};
+				}
+			}
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.artifact).toEqual({
+			wasm: new Uint8Array([4, 2, 4, 2]),
+			targetTriple: 'wasm32-wasip2',
+			format: 'component'
+		});
+		expect(result.stdout).toContain('worker stdout');
+		expect(result.stdout).not.toContain('memory access out of bounds');
+		expect(worker.terminated).toBe(true);
 	});
 
 	it('retries after a transient worker bootstrap script error and succeeds on the next attempt', async () => {
@@ -114,7 +187,11 @@ describe('compileRust retry behavior', () => {
 			},
 			{
 				...createRetryDependencies([firstWorker, secondWorker]).dependencies,
-				linkBitcode: async () => new Uint8Array([6, 6, 6, 6])
+				linkBitcode: async () => ({
+					wasm: new Uint8Array([6, 6, 6, 6]),
+					targetTriple: 'wasm32-wasip1',
+					format: 'core-wasm'
+				})
 			}
 		);
 
@@ -151,18 +228,20 @@ describe('compileRust retry behavior', () => {
 				},
 				{
 					...createRetryDependencies([firstWorker, secondWorker]).dependencies,
-					linkBitcode: async () => new Uint8Array([6, 6, 6, 6])
+					linkBitcode: async () => ({
+						wasm: new Uint8Array([6, 6, 6, 6]),
+						targetTriple: 'wasm32-wasip1',
+						format: 'core-wasm'
+					})
 				}
 			);
 
 			expect(result.success).toBe(true);
 			expect(errorSpy).not.toHaveBeenCalled();
 			expect(warnSpy).toHaveBeenCalledWith(
-				expect.stringContaining(
-					'[wasm-rust] browser rustc attempt 1/5 failed; retrying reason='
-				)
+				expect.stringContaining('[wasm-rust] browser rustc attempt 1/5 failed; retrying')
 			);
-			expect(debugSpy).toHaveBeenCalledWith(
+			expect(debugSpy).not.toHaveBeenCalledWith(
 				expect.stringContaining('[wasm-rust] compile worker bootstrap failed')
 			);
 		} finally {
@@ -202,12 +281,10 @@ describe('compileRust retry behavior', () => {
 			}
 		);
 
-		expect(result).toEqual({
-			success: false,
-			stdout: undefined,
-			stderr: 'syntax error: expected `;`',
-			diagnostics: undefined
-		});
+		expect(result.success).toBe(false);
+		expect(result.stderr).toBe('syntax error: expected `;`');
+		expect(result.diagnostics).toBeUndefined();
+		expect(result.stdout).toContain('[wasm-rust] manifest loaded target=wasm32-wasip1');
 		expect(createWorkerCalls).toBe(1);
 	});
 
@@ -231,7 +308,11 @@ describe('compileRust retry behavior', () => {
 			},
 			{
 				...createRetryDependencies([firstWorker, secondWorker]).dependencies,
-				linkBitcode: async () => new Uint8Array([1, 2, 3, 4])
+				linkBitcode: async () => ({
+					wasm: new Uint8Array([1, 2, 3, 4]),
+					targetTriple: 'wasm32-wasip1',
+					format: 'core-wasm'
+				})
 			}
 		);
 
@@ -267,7 +348,11 @@ describe('compileRust retry behavior', () => {
 			},
 			{
 				...createRetryDependencies([firstWorker, secondWorker]).dependencies,
-				linkBitcode: async () => new Uint8Array([5, 4, 3, 2])
+				linkBitcode: async () => ({
+					wasm: new Uint8Array([5, 4, 3, 2]),
+					targetTriple: 'wasm32-wasip1',
+					format: 'core-wasm'
+				})
 			}
 		);
 
@@ -296,7 +381,11 @@ describe('compileRust retry behavior', () => {
 			},
 			{
 				...createRetryDependencies([firstWorker, secondWorker]).dependencies,
-				linkBitcode: async () => new Uint8Array([4, 4, 4, 4])
+				linkBitcode: async () => ({
+					wasm: new Uint8Array([4, 4, 4, 4]),
+					targetTriple: 'wasm32-wasip1',
+					format: 'core-wasm'
+				})
 			}
 		);
 
@@ -327,19 +416,23 @@ describe('compileRust retry behavior', () => {
 				...createRetryDependencies([worker]).dependencies,
 				linkBitcode: async (receivedBitcode) => {
 					expect(receivedBitcode).toEqual(bitcode);
-					return new Uint8Array([5, 4, 3, 2]);
+					return {
+						wasm: new Uint8Array([5, 4, 3, 2]),
+						targetTriple: 'wasm32-wasip1',
+						format: 'core-wasm'
+					};
 				}
 			}
 		);
 
-		expect(result).toEqual({
-			success: true,
-			stdout: 'worker stdout',
-			stderr: undefined,
-			diagnostics: undefined,
-			artifact: {
-				wasm: new Uint8Array([5, 4, 3, 2])
-			}
+		expect(result.success).toBe(true);
+		expect(result.stdout).toContain('worker stdout');
+		expect(result.stdout).toContain('[wasm-rust] worker errored with mirrored bitcode present');
+		expect(result.diagnostics).toBeUndefined();
+		expect(result.artifact).toEqual({
+			wasm: new Uint8Array([5, 4, 3, 2]),
+			targetTriple: 'wasm32-wasip1',
+			format: 'core-wasm'
 		});
 		expect(worker.terminated).toBe(true);
 	});
@@ -373,7 +466,11 @@ describe('compileRust retry behavior', () => {
 			},
 			{
 				...createRetryDependencies([worker]).dependencies,
-				linkBitcode: async () => new Uint8Array([8, 8, 8, 8])
+				linkBitcode: async () => ({
+					wasm: new Uint8Array([8, 8, 8, 8]),
+					targetTriple: 'wasm32-wasip1',
+					format: 'core-wasm'
+				})
 			}
 		);
 

@@ -12,6 +12,7 @@ const runTimeoutMs = Number(
 	process.env.WASM_RUST_BROWSER_HARNESS_RUN_TIMEOUT_MS || String(120000 + 120000)
 );
 const chromiumExecutable = process.env.WASM_RUST_CHROMIUM_EXECUTABLE;
+const projectRoot = '/home/seorii/dev/hancomac/wasm-rust';
 
 async function resolveChromiumExecutable() {
 	if (chromiumExecutable) {
@@ -28,6 +29,25 @@ async function resolveChromiumExecutable() {
 		throw new Error('failed to locate a cached Chromium build under ~/.cache/ms-playwright');
 	}
 	return path.join(cacheRoot, chromiumFolder, 'chrome-linux64', 'chrome');
+}
+
+async function resolveHarnessTargetTriples() {
+	try {
+		const manifest = JSON.parse(
+			await fs.readFile(
+				path.join(projectRoot, 'dist', 'runtime', 'runtime-manifest.v2.json'),
+				'utf8'
+			)
+		);
+		const targets = Object.keys(manifest.targets || {});
+		if (targets.length > 0) {
+			return targets;
+		}
+	} catch {}
+	const legacyManifest = JSON.parse(
+		await fs.readFile(path.join(projectRoot, 'dist', 'runtime', 'runtime-manifest.json'), 'utf8')
+	);
+	return [legacyManifest.targetTriple || 'wasm32-wasip1'];
 }
 
 describe('browser harness direct Playwright integration', () => {
@@ -64,15 +84,32 @@ describe('browser harness direct Playwright integration', () => {
 					waitUntil: 'domcontentloaded'
 				});
 				await page.waitForFunction(() => typeof window.runWasmRustHarness === 'function');
+				const targetTriples = await resolveHarnessTargetTriples();
+				expect(targetTriples.length).toBeGreaterThan(0);
+				for (const targetTriple of targetTriples) {
+					const result = await page.evaluate(
+						async ({ code, targetTriple: selectedTarget }) =>
+							window.runWasmRustHarness({ code, log: true, targetTriple: selectedTarget }),
+						{
+							code: sampleProgram,
+							targetTriple
+						}
+					);
 
-				const result = await page.evaluate(async (code) => window.runWasmRustHarness({ code, log: true }), sampleProgram);
-
-				expect(result.crossOriginIsolated).toBe(true);
-				expect(result.compile.success).toBe(true);
-				expect(result.compile.hasWasm).toBe(true);
-				expect(result.compile.hasWat).toBe(false);
-				expect(result.runtime?.exitCode).toBe(0);
-				expect(result.runtime?.stdout).toBe('hi\n');
+					expect(result.crossOriginIsolated).toBe(true);
+					expect(result.compile.success).toBe(true);
+					expect(result.compile.hasWasm).toBe(true);
+					expect(result.compile.hasWat).toBe(false);
+					expect(result.compile.targetTriple).toBe(targetTriple);
+					expect(result.runtime?.exitCode).toBe(0);
+					expect(result.runtime?.stdout).toBe('hi\n');
+					if (targetTriple === 'wasm32-wasip2') {
+						expect(result.compile.format).toBe('component');
+					}
+					if (targetTriple === 'wasm32-wasip1') {
+						expect(result.compile.format).toBe('core-wasm');
+					}
+				}
 				expect(pageErrors).toEqual([]);
 				expect(
 					consoleMessages.some(

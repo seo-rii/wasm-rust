@@ -39,6 +39,89 @@ export function createRuntimeManifest(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+export function createRuntimeManifestV2(overrides: Record<string, unknown> = {}) {
+	return {
+		manifestVersion: 2,
+		version: 'test-runtime-v2',
+		hostTriple: 'x86_64-unknown-linux-gnu',
+		defaultTargetTriple: 'wasm32-wasip1',
+		compiler: {
+			rustcWasm: 'rustc/rustc.wasm',
+			workerBitcodeFile: 'main.main.1ca70c240d7de168-cgu.0.rcgu.no-opt.bc',
+			workerSharedOutputBytes: 1024,
+			compileTimeoutMs: 2_000,
+			artifactIdleMs: 500,
+			rustcMemory: {
+				initialPages: 8,
+				maximumPages: 16
+			}
+		},
+		targets: {
+			'wasm32-wasip1': {
+				artifactFormat: 'core-wasm',
+				sysrootFiles: [
+					{
+						asset: 'sysroot/lib/rustlib/wasm32-wasip1/lib/libstd.rlib',
+						runtimePath: '/lib/rustlib/wasm32-wasip1/lib/libstd.rlib'
+					}
+				],
+				compile: {
+					kind: 'llvm-wasm',
+					llvm: {
+						llc: 'llvm/llc.js',
+						lld: 'llvm/lld.js'
+					},
+					link: {
+						allocatorObjectRuntimePath: '/work/alloc.o',
+						allocatorObjectAsset: 'link/alloc.o',
+						args: ['-o', '/work/main.wasm'],
+						files: [
+							{
+								asset: 'sysroot/lib/rustlib/wasm32-wasip1/lib/libstd.rlib',
+								runtimePath: '/rustlib/libstd.rlib'
+							}
+						]
+					}
+				},
+				execution: {
+					kind: 'preview1'
+				}
+			},
+			'wasm32-wasip2': {
+				artifactFormat: 'component',
+				sysrootFiles: [
+					{
+						asset: 'sysroot/lib/rustlib/wasm32-wasip2/lib/libstd.rlib',
+						runtimePath: '/lib/rustlib/wasm32-wasip2/lib/libstd.rlib'
+					}
+				],
+				compile: {
+					kind: 'llvm-wasm+component-encoder',
+					llvm: {
+						llc: 'llvm/llc.js',
+						lld: 'llvm/lld.js'
+					},
+					link: {
+						allocatorObjectRuntimePath: '/work/alloc.o',
+						allocatorObjectAsset: 'link/alloc.o',
+						args: ['-o', '/work/main.wasm'],
+						files: [
+							{
+								asset: 'sysroot/lib/rustlib/wasm32-wasip2/lib/libstd.rlib',
+								runtimePath: '/rustlib/libstd.rlib'
+							}
+						]
+					}
+				},
+				execution: {
+					kind: 'preview2-component'
+				}
+			}
+		},
+		...overrides
+	};
+}
+
 export class FakeWorker {
 	private readonly listeners = new Map<'message' | 'error', Set<(event: any) => void>>();
 	terminated = false;
