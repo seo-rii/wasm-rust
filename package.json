@@ -1,0 +1,47 @@
+{
+	"name": "wasm-rust",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Browser-loadable Rust compiler module for wasm-idle",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"default": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json && node scripts/prepare-runtime.mjs",
+		"test": "vitest run",
+		"test:browser": "pnpm build && node ./scripts/probe-browser-harness.mjs",
+		"test:browser:vitest": "WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts",
+		"test:browser:playwright": "WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts",
+		"validate:standalone-browser": "node ./scripts/validate-standalone-browser.mjs",
+		"serve:browser-harness": "node ./scripts/browser-harness-server.mjs",
+		"probe:native-link": "node scripts/probe-native-rust-link.mjs",
+		"probe:browser-harness": "node ./scripts/probe-browser-harness.mjs",
+		"probe:rustc": "node scripts/probe-rustc-wasm.mjs",
+		"probe:browser-clang-rust-split": "node --loader ./scripts/node-js-extension-loader.mjs ./scripts/probe-browser-clang-rust-split.mjs",
+		"probe:browser-rustc-llvm-wasm-split": "node ./scripts/probe-browser-rustc-llvm-wasm-split.mjs",
+		"probe:llvm-wasm-rust-split": "node ./scripts/probe-llvm-wasm-rust-split.mjs",
+		"probe:rustc:real-threads": "WASM_RUST_REAL_THREADS=1 node scripts/probe-rustc-wasm.mjs",
+		"probe:rustc:llvm-backend": "WASM_RUST_CODEGEN_BACKEND=llvm node scripts/probe-rustc-wasm.mjs",
+		"probe:rustc:llvm-backend:real-threads": "WASM_RUST_REAL_THREADS=1 WASM_RUST_CODEGEN_BACKEND=llvm node scripts/probe-rustc-wasm.mjs",
+		"probe:rustc:link-attempt": "WASM_RUST_PROBE_MODE=link_attempt node scripts/probe-rustc-wasm.mjs",
+		"probe:rustc:patched-target": "node scripts/probe-rustc-wasm.mjs --patch-target-metadata"
+	},
+	"devDependencies": {
+		"@types/node": "^24.6.1",
+		"playwright-core": "^1.58.2",
+		"typescript": "^5.9.3",
+		"vitest": "^4.0.18",
+		"wabt": "^1.0.39"
+	},
+	"dependencies": {
+		"@bjorn3/browser_wasi_shim": "^0.4.2"
+	}
+}

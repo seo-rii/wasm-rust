@@ -1,0 +1,90 @@
+import type { RuntimeManifest } from './runtime-manifest.js';
+import type { BrowserRustCompileRequest, CompilerDiagnostic } from './types.js';
+
+export interface SharedRuntimeAssetFile {
+	runtimePath: string;
+	buffer: SharedArrayBuffer;
+}
+
+export interface CompileWorkerRequest {
+	type: 'compile';
+	runtimeBaseUrl: string;
+	manifest: RuntimeManifest;
+	request: BrowserRustCompileRequest;
+	sharedBitcodeBuffer: SharedArrayBuffer;
+	sharedStatusBuffer: SharedArrayBuffer;
+}
+
+export interface CompileWorkerSuccessMessage {
+	type: 'result';
+	stdout: string;
+	stderr: string;
+	exitCode: number | null;
+	diagnostics?: CompilerDiagnostic[];
+}
+
+export interface CompileWorkerFailureMessage {
+	type: 'error';
+	message: string;
+	stdout?: string;
+	stderr?: string;
+	diagnostics?: CompilerDiagnostic[];
+	exitCode?: number | null;
+}
+
+export interface CompileWorkerLogMessage {
+	type: 'log';
+	message: string;
+}
+
+export type CompileWorkerMessage =
+	| CompileWorkerSuccessMessage
+	| CompileWorkerFailureMessage
+	| CompileWorkerLogMessage;
+
+export interface RustcThreadWorkerRequest {
+	type: 'thread-start';
+	runtimeBaseUrl: string;
+	manifest: RuntimeManifest;
+	sourceCode: string;
+	log: boolean;
+	sharedBitcodeBuffer: SharedArrayBuffer;
+	sharedStatusBuffer: SharedArrayBuffer;
+	threadCounterBuffer: SharedArrayBuffer;
+	sysrootAssets: SharedRuntimeAssetFile[];
+	rustcModule: WebAssembly.Module;
+	memory: WebAssembly.Memory;
+	args: string[];
+	threadId: number;
+	startArg: number;
+	readyBuffer: SharedArrayBuffer;
+}
+
+export interface RustcThreadPoolInitRequest {
+	type: 'thread-pool-init';
+	runtimeBaseUrl: string;
+	manifest: RuntimeManifest;
+	sourceCode: string;
+	log: boolean;
+	sharedBitcodeBuffer: SharedArrayBuffer;
+	sharedStatusBuffer: SharedArrayBuffer;
+	threadCounterBuffer: SharedArrayBuffer;
+	sysrootAssets: SharedRuntimeAssetFile[];
+	rustcModule: WebAssembly.Module;
+	memory: WebAssembly.Memory;
+	args: string[];
+	slotIndex: number;
+	slotBuffer: SharedArrayBuffer;
+	poolBuffers: SharedArrayBuffer[];
+}
+
+export interface RustcThreadWorkerLogMessage {
+	type: 'thread-log';
+	threadId: number;
+	phase: string;
+	detail?: string;
+}
+
+export interface RustcThreadWorkerReadyMessage {
+	type: 'thread-ready';
+}
