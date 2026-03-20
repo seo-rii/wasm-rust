@@ -1,0 +1,191 @@
+# Reproduction
+
+This document lists the commands and script entrypoints needed to reproduce the current
+`wasm-rust` browser compiler state.
+
+## Fast path
+
+One command runs the standalone browser validation sequence:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run validate:standalone-browser
+```
+
+That script runs:
+
+1. `pnpm build`
+2. `pnpm test`
+3. `pnpm run probe:browser-harness`
+4. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts`
+5. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts`
+
+Script file:
+
+- `scripts/validate-standalone-browser.mjs`
+
+Latest validated outcome from that wrapper:
+
+- build succeeds
+- unit/integration tests succeed
+- Chromium harness probe succeeds
+- Chromium Vitest harness succeeds
+- final hello-world result is:
+  - `compile.success: true`
+  - `runtime.exitCode: 0`
+  - `runtime.stdout: "hi\n"`
+
+Observed during the same successful run:
+
+- browser rustc attempt `1/5` may still fail with transient LLVM worker faults
+- the current shipped behavior is to retry and continue once mirrored `.no-opt.bc` is available
+- a `favicon.ico` `404` in the harness console is expected noise and not a product failure
+
+## Standalone browser harness
+
+Serve the standalone browser harness:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run serve:browser-harness
+```
+
+Probe it through Chromium:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run probe:browser-harness
+```
+
+Expected success shape:
+
+- `success: true`
+- `result.compile.success: true`
+- `result.runtime.exitCode: 0`
+- `result.runtime.stdout: "hi\n"`
+
+Owned browser regression:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts
+```
+
+Direct Playwright integration regression:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts
+```
+
+## Split backend probes
+
+These are still useful for deeper diagnosis.
+
+Browser clang/lld incompatibility probe:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run probe:browser-clang-rust-split
+```
+
+`llvm-wasm` textual IR backend probe:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run probe:llvm-wasm-rust-split
+```
+
+Browser rustc + llvm-wasm split probe:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run probe:browser-rustc-llvm-wasm-split
+```
+
+Heavy regression for the split probe:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+WASM_RUST_RUN_REAL_RUSTC_SPLIT_PROBE=1 \
+pnpm exec vitest run test/backend-probes.test.ts \
+  -t "links browser-produced Rust bitcode through llvm-wasm when the real rustc.wasm toolchain is available"
+```
+
+## Runtime packaging
+
+Rebuild the shipped runtime assets:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm build
+```
+
+This runs:
+
+- `tsc -p tsconfig.json`
+- `node scripts/prepare-runtime.mjs`
+
+`prepare-runtime.mjs` is responsible for:
+
+- copying `rustc.wasm`
+- patching the wasm memory maximum
+- copying sysroot assets
+- copying `llvm-wasm`
+- generating `dist/runtime/runtime-manifest.json`
+
+## Default cache roots
+
+Unless overridden, the checked-in scripts expect:
+
+- browser-host rustc bundle:
+  - `/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir`
+- matching native stage2 toolchain:
+  - `/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2`
+- `llvm-wasm` cache:
+  - `/home/seorii/.cache/llvm-wasm-20260319`
+
+## Environment overrides
+
+Useful overrides:
+
+- `WASM_RUST_RUSTC_ROOT`
+- `WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT`
+- `WASM_RUST_LLVM_WASM_ROOT`
+- `WASM_RUST_RUSTC_MEMORY_INITIAL_PAGES`
+- `WASM_RUST_RUSTC_MEMORY_MAXIMUM_PAGES`
+- `WASM_RUST_BROWSER_HARNESS_COMPILE_TIMEOUT_MS`
+- `WASM_RUST_BROWSER_HARNESS_ARTIFACT_IDLE_MS`
+- `WASM_RUST_BROWSER_HARNESS_INITIAL_PAGES`
+- `WASM_RUST_BROWSER_HARNESS_MAXIMUM_PAGES`
+
+## Supporting docs
+
+- `README.md`
+- `PROGRESS.md`
+- `docs/consumer-integration.md`
+- `docs/real-rustc-history.md`
+- `docs/browser-compiler.md`
+
+## wasm-idle consumer route
+
+The linked consumer-side browser route is also reproducible:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm build
+
+cd /home/seorii/dev/hancomac/wasm-idle
+pnpm run sync:wasm-rust
+
+WASM_IDLE_BROWSER_URL='http://localhost:5173/absproxy/5173/' \
+WASM_IDLE_REUSE_LOCAL_PREVIEW=1 \
+node scripts/probe-rust-browser.mjs
+```
+
+Default probe behavior on the `wasm-idle` route:
+
+- sends `5\n`
+- does not send EOF unless `WASM_IDLE_RUST_SEND_EOF=1`
+- expects `factorial_plus_bonus=123`
+- fails if the browser route regresses back to needing EOF for the default line-based sample

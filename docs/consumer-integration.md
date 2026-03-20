@@ -1,0 +1,122 @@
+# Consumer integration
+
+This document describes the stable contract that a browser app should rely on when consuming
+`wasm-rust`.
+
+## What a consumer gets
+
+`wasm-rust` exposes a browser-loadable ESM module that exports `default` and `createRustCompiler`.
+
+Typical consumer flow:
+
+```ts
+import createRustCompiler from '/wasm-rust/index.js';
+
+const compiler = await createRustCompiler();
+const result = await compiler.compile({
+	code: 'fn main() { println!("hi"); }',
+	edition: '2024',
+	crateType: 'bin',
+	prepare: true,
+	log: true
+});
+```
+
+Successful result shape:
+
+```ts
+{
+  success: true,
+  artifact: {
+    wasm: Uint8Array
+  }
+}
+```
+
+Current supported source shape:
+
+- single-file Rust source
+- `bin` crate type
+- editions `2021` and `2024`
+- target `wasm32-wasip1`
+
+## Browser requirements
+
+The compiler itself is a browser-worker runtime, not a server API. A consumer must provide:
+
+- a cross-origin-isolated page
+- `SharedArrayBuffer`
+- wasm threads
+- same-origin access to the nested `wasm-rust` worker/runtime assets
+
+In practice that means:
+
+- serve COOP/COEP correctly
+- do not rewrite the worker/runtime asset URLs to a different origin without making them same-origin
+  to the compiler entry module
+- expect nested module workers, not `blob:` wrappers
+
+## Runtime expectations after compile
+
+The returned artifact is a WASI module and should be executed with a preview1-compatible host.
+
+Recommended behavior:
+
+- provide `wasi_snapshot_preview1`
+- use a stricter preview1 WASI host such as `@bjorn3/browser_wasi_shim`
+- treat successful `compile()` as authoritative even if the browser console showed transient internal
+  retry warnings before success
+
+`wasm-idle` now follows this path on its Rust worker runtime.
+
+## Retry behavior
+
+`wasm-rust` intentionally retries transient browser-rustc failures up to five attempts.
+
+This is currently expected product behavior, not an exceptional local workaround. A consumer should
+expect to see warning logs like:
+
+```text
+[wasm-rust] browser rustc attempt 1/5 failed; retrying reason="..."
+```
+
+Important implications:
+
+- a retry warning does not mean compile failed
+- user-facing terminals should only surface the final compile failure, not recovered internal worker
+  crashes
+- if `compile()` returns `success: true`, the recovered path is considered valid
+- when `log: true` is enabled, compile-time browser-rustc logs are returned in `result.stdout`
+  - consumers can forward that stdout into their terminal before running the final wasm artifact
+  - the browser console is no longer the only place to inspect retry/progress lines
+
+## Stdin behavior
+
+`wasm-rust` only produces the Rust program artifact. Line-based stdin vs EOF-based stdin is decided by
+the consumer runtime and by the Rust program itself.
+
+Two common cases:
+
+- line-based programs using `read_line`, `Scanner`, `>>`, etc.
+  - pressing Enter should be enough
+- read-to-end programs using `read_to_string` or equivalent
+  - the consumer should expose an EOF action such as `Ctrl+D` or a button
+
+`wasm-idle` now documents both behaviors and uses a line-based Rust sample by default.
+
+## Refreshing vendored assets
+
+If a consumer vendors the built output locally, treat the whole `dist/` tree as one bundle.
+
+In `wasm-idle`, the refresh flow is:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm build
+
+cd /home/seorii/dev/hancomac/wasm-idle
+pnpm run sync:wasm-rust
+```
+
+If the browser reports stale sysroot/archive errors after a rebuild, hard refresh the page so the new
+bundle version is used.
