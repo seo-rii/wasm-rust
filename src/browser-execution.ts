@@ -1,10 +1,7 @@
-import {
-	Fd,
-	Inode,
-	PreopenDirectory,
-	WASI,
-	wasi
-} from '@bjorn3/browser_wasi_shim';
+import { Fd, Inode } from '@bjorn3/browser_wasi_shim/dist/fd.js';
+import { PreopenDirectory } from '@bjorn3/browser_wasi_shim/dist/fs_mem.js';
+import WASI from '@bjorn3/browser_wasi_shim/dist/wasi.js';
+import * as wasi from '@bjorn3/browser_wasi_shim/dist/wasi_defs.js';
 
 import {
 	createPreview2ImportObject,
@@ -207,6 +204,7 @@ async function runPreview2Component(
 	const imports = await createPreview2ImportObject(runtimeBaseUrl, {
 		args: ['component.wasm', ...(options.args || [])],
 		env: options.env,
+		requiredImports: transpiled.imports,
 		stdin: {
 			blockingRead(length: number) {
 				return stdin.read(length);

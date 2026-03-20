@@ -178,6 +178,22 @@ async function copyBrowserVendorAssets() {
 			targetPath: path.join(browserWasiShimVendorRoot, 'index.js')
 		},
 		{
+			specifier: '@bjorn3/browser_wasi_shim/dist/fd.js',
+			targetPath: path.join(browserWasiShimVendorRoot, 'fd.js')
+		},
+		{
+			specifier: '@bjorn3/browser_wasi_shim/dist/fs_mem.js',
+			targetPath: path.join(browserWasiShimVendorRoot, 'fs_mem.js')
+		},
+		{
+			specifier: '@bjorn3/browser_wasi_shim/dist/wasi.js',
+			targetPath: path.join(browserWasiShimVendorRoot, 'wasi.js')
+		},
+		{
+			specifier: '@bjorn3/browser_wasi_shim/dist/wasi_defs.js',
+			targetPath: path.join(browserWasiShimVendorRoot, 'wasi_defs.js')
+		},
+		{
 			specifier: '@bytecodealliance/preview2-shim',
 			targetPath: path.join(preview2ShimVendorRoot, 'lib', 'browser', 'index.js')
 		},

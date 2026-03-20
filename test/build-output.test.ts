@@ -47,6 +47,26 @@ describe('built browser bundle', () => {
 		expect(contents).toContain('-Zunstable-options');
 	});
 
+	it('keeps preview2 browser imports off the full preview2 browser index in the shipped runtime', async () => {
+		const contents = await fs.readFile(path.join(distRoot, 'browser-component-tools.js'), 'utf8');
+		expect(contents).not.toContain('lib/common/instantiation.js');
+		expect(contents).not.toContain('lib/browser/index.js');
+		expect(contents).toContain('lib/browser/cli.js');
+		expect(contents).toContain('lib/browser/filesystem.js');
+		expect(contents).toContain('lib/browser/io.js');
+	});
+
+	it('keeps preview1 browser imports off the full browser_wasi_shim entrypoint in the shipped runtime', async () => {
+		const contents = await fs.readFile(path.join(distRoot, 'browser-execution.js'), 'utf8');
+		expect(contents).not.toContain('./vendor/browser_wasi_shim/index.js');
+		expect(contents).not.toContain('./vendor/browser_wasi_shim/fs_opfs.js');
+		expect(contents).not.toContain('./vendor/browser_wasi_shim/strace.js');
+		expect(contents).toContain('./vendor/browser_wasi_shim/fd.js');
+		expect(contents).toContain('./vendor/browser_wasi_shim/fs_mem.js');
+		expect(contents).toContain('./vendor/browser_wasi_shim/wasi.js');
+		expect(contents).toContain('./vendor/browser_wasi_shim/wasi_defs.js');
+	});
+
 	it('publishes legacy v1 and normalized v2 runtime manifests without directory-only link assets', async () => {
 		const legacyManifest = JSON.parse(
 			await fs.readFile(path.join(distRoot, 'runtime', 'runtime-manifest.json'), 'utf8')
