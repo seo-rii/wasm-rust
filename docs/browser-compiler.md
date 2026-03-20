@@ -5,7 +5,14 @@ compiler to a real browser-hosted `rustc.wasm` pipeline.
 
 ## Current architecture
 
-`wasm-rust` now uses a split browser pipeline:
+`wasm-rust` now uses two explicit browser areas:
+
+- compile support
+  - target-aware browser compilation for `wasm32-wasip1` and `wasm32-wasip2`
+- in-browser execution
+  - target-aware runtime execution for preview1 core wasm and preview2 components
+
+The current pipeline is:
 
 1. `src/compiler.ts`
    - top-level browser API surface
@@ -25,11 +32,18 @@ compiler to a real browser-hosted `rustc.wasm` pipeline.
    - mirrored bitcode inode preservation across rename/reopen paths
 5. `src/browser-linker.ts`
    - links mirrored `.no-opt.bc` through packaged `llvm-wasm` `llc` + `lld`
-   - returns final WASI `wasm`
-6. `scripts/prepare-runtime.mjs`
-   - packages the runtime assets into `dist/runtime/`
+   - returns either a preview1 core wasm artifact or a preview2 component artifact
+6. `src/browser-component-tools.ts`
+   - componentizes `wasm32-wasip2` core wasm into a browser-runnable component
+   - transpiles preview2 components with vendored `jco`
+7. `src/browser-execution.ts`
+   - executes preview1 artifacts through `@bjorn3/browser_wasi_shim`
+   - executes preview2/component artifacts through `preview2-shim` + transpiled `jco` output
+8. `scripts/prepare-runtime.mjs`
+   - packages runtime assets into `dist/runtime/`
    - patches the shipped `rustc.wasm` memory maximum
-   - generates the runtime link manifest
+   - emits both legacy `runtime-manifest.json` and target-aware `runtime-manifest.v2.json`
+   - vendors and rewrites browser-safe `preview2-shim` and `jco` runtime modules
 
 ## Invariants
 
@@ -44,6 +58,9 @@ These are required for the browser path to work.
     - maximum pages: `65536`
 - The packaged runtime manifest must allow enough wall-clock time for real browser rustc startup.
   - Current packaged compile timeout: `120000ms`
+- Manifest compatibility is intentionally split:
+  - `dist/runtime/runtime-manifest.json` stays as the legacy wasip1-only v1 schema
+  - `dist/runtime/runtime-manifest.v2.json` is the v2-first target-aware schema used by new codepaths
 - The mirrored bitcode file must survive:
   - direct rename into `/work/<bitcode>`
   - rename through the root preopen
@@ -51,6 +68,9 @@ These are required for the browser path to work.
 - The browser linker manifest must contain only materialized files.
   - `-L` directories stay in link args only.
   - directory-only entries in `link.files` cause browser fetch failures.
+- Preview2 packaging requires an external toolchain prerequisite.
+  - `wasm32-wasip2` packaging expects `WASM_RUST_WASI_SDK_ROOT` to point at `wasi-sdk >= 22`
+  - `bin/wasm-component-ld` must be present there
 
 ## Why the split backend exists
 
@@ -68,6 +88,7 @@ That is why the checked-in browser backend is:
 
 - packaged `llvm-wasm` `llc`
 - packaged `llvm-wasm` `lld`
+- plus a separate preview2 componentization step for `wasm32-wasip2`
 
 ## Browser-specific instability
 
@@ -99,7 +120,7 @@ Shipped mitigation:
     terminal errors
 - when `compile({ log: true })` is used, compile-time browser-rustc log lines are returned through
   `result.stdout`
-  - this includes high-level retry reasons and forwarded `compiler-worker` progress lines
+  - this includes retry warnings and forwarded `compiler-worker` progress lines
   - consumers can print that stdout directly in their terminal surface without scraping browser
     console output
 - successful recovered compiles also drop recovered compiler `stderr`
@@ -111,16 +132,41 @@ This is an intentional product behavior, not just a probe-only trick.
 
 The browser retry path is now part of the consumer contract:
 
-- compile retries are visible as warnings with the retry reason
+- compile retries are visible as warnings
 - recovered internal worker failures should not be forwarded into user-facing program output
 - a final `success: true` compile result is the only outcome the consumer should treat as decisive
 
 For consumer-side stdin behavior:
 
 - `wasm-rust` only produces the artifact
+- the artifact now includes `targetTriple` and `format`
 - line-based stdin vs EOF-based stdin depends on the consumer runtime and the Rust program
 - the linked `wasm-idle` route now uses a line-based Rust sample by default so Enter alone is enough
   for the built-in example, while still exposing explicit EOF for read-to-end programs
+
+## Runtime packaging and probes
+
+New runtime/build helpers:
+
+- `pnpm run prepare:runtime`
+  - packages `rustc.wasm`, target sysroots, link assets, v1 manifest, and v2 manifest
+- `pnpm run toolchain:build:custom`
+  - env-driven wrapper for rebuilding the custom browser `rustc.wasm` toolchain
+- `pnpm run probe:native-link`
+  - captures native link recipes for the configured targets
+- `pnpm run probe:native-link:wasip1`
+- `pnpm run probe:native-link:wasip2`
+
+Important env vars:
+
+- `WASM_RUST_RUNTIME_TARGET_TRIPLES`
+  - comma-separated targets to package; default is `wasm32-wasip1,wasm32-wasip2`
+- `WASM_RUST_DEFAULT_TARGET_TRIPLE`
+  - default compile target for v2 consumers; default is `wasm32-wasip1`
+- `WASM_RUST_ALLOW_MISSING_TARGETS`
+  - defaults to permissive mode; missing non-default targets are skipped with a warning
+- `WASM_RUST_WASI_SDK_ROOT`
+  - required for preview2 packaging
 
 ## Latest standalone validation evidence
 
@@ -183,7 +229,7 @@ Files:
 What it proves:
 
 - the shipped `/dist` module can compile Rust in Chromium
-- the returned artifact is executable in-browser through WASI
+- the returned artifact is executable in-browser through the target-appropriate runtime
 - the minimal regression target `fn main() { println!("hi"); }` prints `hi\n`
 - consumer-side browser regressions can also pin line-based stdin behavior without requiring EOF
 
@@ -192,7 +238,7 @@ What it proves:
 What is now proven:
 
 - browser compile+run succeeds inside Chromium without `wasm-idle`
-- the shipped module returns `wasm`
+- the shipped module returns target-aware artifacts with `targetTriple` and `format`
 - the standalone browser harness and Vitest browser regression both pass
 
 What is still true:
@@ -200,5 +246,5 @@ What is still true:
 - success currently relies on retrying around intermittent browser-rustc LLVM worker failures
 - that is acceptable for `wasm-rust` standalone validation today
 - consumer reintegration should treat that retry-based recovery as a conscious tradeoff
-- consumers should prefer a preview1-compatible WASI host such as `browser_wasi_shim` for the returned
-  Rust artifact; `wasm-idle` now does that on its Rust-specific path
+- local full preview2 packaging still depends on a matching custom install root that actually contains
+  the `wasm32-wasip2` sysroot

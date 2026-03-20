@@ -17,6 +17,7 @@ const result = await compiler.compile({
 	code: 'fn main() { println!("hi"); }',
 	edition: '2024',
 	crateType: 'bin',
+	targetTriple: 'wasm32-wasip2',
 	prepare: true,
 	log: true
 });
@@ -28,7 +29,9 @@ Successful result shape:
 {
   success: true,
   artifact: {
-    wasm: Uint8Array
+    wasm: Uint8Array,
+    targetTriple: 'wasm32-wasip1' | 'wasm32-wasip2',
+    format: 'core-wasm' | 'component'
   }
 }
 ```
@@ -38,7 +41,7 @@ Current supported source shape:
 - single-file Rust source
 - `bin` crate type
 - editions `2021` and `2024`
-- target `wasm32-wasip1`
+- targets `wasm32-wasip1` and `wasm32-wasip2`
 
 ## Browser requirements
 
@@ -58,12 +61,15 @@ In practice that means:
 
 ## Runtime expectations after compile
 
-The returned artifact is a WASI module and should be executed with a preview1-compatible host.
+The returned artifact is target-aware and should be executed with the matching host.
 
 Recommended behavior:
 
-- provide `wasi_snapshot_preview1`
-- use a stricter preview1 WASI host such as `@bjorn3/browser_wasi_shim`
+- for `artifact.targetTriple === 'wasm32-wasip1'`
+  - provide `wasi_snapshot_preview1`
+  - use a stricter preview1 WASI host such as `@bjorn3/browser_wasi_shim`
+- for `artifact.targetTriple === 'wasm32-wasip2'`
+  - execute the component through `preview2-shim` plus `jco`-transpiled bindings
 - treat successful `compile()` as authoritative even if the browser console showed transient internal
   retry warnings before success
 
@@ -77,7 +83,7 @@ This is currently expected product behavior, not an exceptional local workaround
 expect to see warning logs like:
 
 ```text
-[wasm-rust] browser rustc attempt 1/5 failed; retrying reason="..."
+[wasm-rust] browser rustc attempt 1/5 failed; retrying
 ```
 
 Important implications:
