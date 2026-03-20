@@ -126,6 +126,37 @@ This runs:
 - `tsc -p tsconfig.json`
 - `node scripts/prepare-runtime.mjs`
 
+## GitHub release asset upload
+
+Upload existing files to an existing GitHub release:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run release:upload -- --tag v0.1.0 ./dist/runtime/runtime-manifest.json
+```
+
+Create a release from the latest local commit and tag it:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run release:upload -- --tag v0.1.0 --create-release
+```
+
+Create the release, build, package `dist/`, and upload the resulting tarball:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run release:upload -- --tag v0.1.0 --create-release --build --pack-dist
+```
+
+Useful flags:
+
+- `--create-release`
+- `--target <ref>`
+- `--repo owner/name`
+- `--clobber`
+- `--pack-dist ./artifacts/custom-name.tgz`
+
 `prepare-runtime.mjs` is responsible for:
 
 - copying `rustc.wasm`
