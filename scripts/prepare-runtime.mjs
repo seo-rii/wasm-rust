@@ -63,7 +63,11 @@ if (!configuredTargetTriples.includes(defaultTargetTriple)) {
 }
 
 function parseTargetTriple(value, label) {
-	if (value !== 'wasm32-wasip1' && value !== 'wasm32-wasip2') {
+	if (
+		value !== 'wasm32-wasip1' &&
+		value !== 'wasm32-wasip2' &&
+		value !== 'wasm32-wasip3'
+	) {
 		throw new Error(`invalid ${label}: ${value}`);
 	}
 	return value;
@@ -374,7 +378,7 @@ async function resolveWasiSdkSupport() {
 	}
 	if (version.major < 22) {
 		throw new Error(
-			`wasi-sdk >= 22 is required for wasm32-wasip2 support (found ${version.major}.${version.minor} at ${wasiSdkRoot})`
+			`wasi-sdk >= 22 is required for wasm32-wasip2/wasm32-wasip3 support (found ${version.major}.${version.minor} at ${wasiSdkRoot})`
 		);
 	}
 	return {
@@ -384,8 +388,12 @@ async function resolveWasiSdkSupport() {
 	};
 }
 
+function isComponentTarget(targetTriple) {
+	return targetTriple === 'wasm32-wasip2' || targetTriple === 'wasm32-wasip3';
+}
+
 function getTargetArtifactProfile(targetTriple) {
-	if (targetTriple === 'wasm32-wasip2') {
+	if (isComponentTarget(targetTriple)) {
 		return {
 			artifactFormat: 'component',
 			compileKind: 'llvm-wasm+component-encoder',
@@ -501,8 +509,10 @@ async function resolveWasiSdkLibcPath(targetTriple, wasiSdkSupport) {
 	}
 	const sysrootLibRoot = path.join(wasiSdkSupport.root, 'share', 'wasi-sysroot', 'lib');
 	const candidateDirectories =
-		targetTriple === 'wasm32-wasip2'
-			? ['wasm32-wasip2', 'wasm32-wasip1', 'wasm32-wasi']
+		targetTriple === 'wasm32-wasip3'
+			? ['wasm32-wasip3', 'wasm32-wasip2', 'wasm32-wasip1', 'wasm32-wasi']
+			: targetTriple === 'wasm32-wasip2'
+				? ['wasm32-wasip2', 'wasm32-wasip1', 'wasm32-wasi']
 			: ['wasm32-wasip1', 'wasm32-wasi'];
 	for (const directoryName of candidateDirectories) {
 		const candidate = path.join(sysrootLibRoot, directoryName, 'libc.a');
@@ -544,7 +554,7 @@ function maybeTranslateMappedPath(arg, mappingRoots) {
 }
 
 function sanitizeLinkArgsForBrowser(targetTriple, args) {
-	if (targetTriple !== 'wasm32-wasip2') {
+	if (!isComponentTarget(targetTriple)) {
 		return args;
 	}
 	const valueFlags = new Set(['--adapt', '--wasi-adapter']);
@@ -625,7 +635,7 @@ async function buildLinkManifest({
 			}
 			if (libcPath) {
 				expandedLinkArgs.push(libcPath);
-			} else if (targetTriple === 'wasm32-wasip2') {
+			} else if (isComponentTarget(targetTriple)) {
 				throw new Error(`failed to resolve wasi-sdk libc.a for ${targetTriple}`);
 			} else {
 				expandedLinkArgs.push(current, next);
@@ -639,7 +649,7 @@ async function buildLinkManifest({
 			}
 			if (libcPath) {
 				expandedLinkArgs.push(libcPath);
-			} else if (targetTriple === 'wasm32-wasip2') {
+			} else if (isComponentTarget(targetTriple)) {
 				throw new Error(`failed to resolve wasi-sdk libc.a for ${targetTriple}`);
 			} else {
 				expandedLinkArgs.push(current);
@@ -791,7 +801,7 @@ async function main() {
 
 	const wasiSdkSupport = await resolveWasiSdkSupport().catch((error) => {
 		if (
-			configuredTargetTriples.includes('wasm32-wasip2') &&
+			configuredTargetTriples.some((targetTriple) => isComponentTarget(targetTriple)) &&
 			!allowMissingTargets
 		) {
 			throw error;
@@ -805,16 +815,19 @@ async function main() {
 		const profile = getTargetArtifactProfile(targetTriple);
 		const targetLibSource = path.join(sysrootSourceRoot, targetTriple, 'lib');
 		if (!(await pathExists(targetLibSource))) {
-			const message = `missing target sysroot libraries at ${targetLibSource}`;
+			const message =
+				targetTriple === 'wasm32-wasip3'
+					? `missing target sysroot libraries at ${targetLibSource}; wasm32-wasip3 currently requires the documented libc [patch] when building the custom toolchain`
+					: `missing target sysroot libraries at ${targetLibSource}`;
 			if (allowMissingTargets && targetTriple !== defaultTargetTriple) {
 				console.warn(`[wasm-rust] skipping ${targetTriple}: ${message}`);
 				continue;
 			}
 			throw new Error(message);
 		}
-		if (targetTriple === 'wasm32-wasip2' && !wasiSdkSupport) {
+		if (isComponentTarget(targetTriple) && !wasiSdkSupport) {
 			const message =
-				'wasm32-wasip2 packaging requires WASM_RUST_WASI_SDK_ROOT pointing to wasi-sdk >= 22 with wasm-component-ld';
+				`${targetTriple} packaging requires WASM_RUST_WASI_SDK_ROOT pointing to wasi-sdk >= 22 with wasm-component-ld`;
 			if (allowMissingTargets && targetTriple !== defaultTargetTriple) {
 				console.warn(`[wasm-rust] skipping ${targetTriple}: ${message}`);
 				continue;

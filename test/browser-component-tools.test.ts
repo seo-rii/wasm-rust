@@ -117,4 +117,12 @@ describe('createPreview2ImportObject', () => {
 		expect(importObject['wasi:sockets/network']).toBeUndefined();
 		expect(importObject['wasi:http/types']).toBeUndefined();
 	});
+
+	it('rejects unsupported preview3 import versions with an explicit transition error', async () => {
+		await expect(
+			createPreview2ImportObject('https://example.com/wasm-rust/runtime/', {
+				requiredImports: ['wasi:cli/environment@0.3.0']
+			})
+		).rejects.toThrow(/currently provides only WASIp2 browser shims/);
+	});
 });

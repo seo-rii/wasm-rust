@@ -171,12 +171,22 @@ export async function createPreview2ImportObject(
 	let clocksModule: Preview2ClocksModule | null = null;
 	let socketsModule: Preview2SocketsModule | null = null;
 	let httpModule: Preview2HttpModule | null = null;
+	const requestedVersionSuffixes = new Set<string>(['', '@0.2.3']);
 
 	const requiredFamilies = new Set<
 		'cli' | 'filesystem' | 'io' | 'random' | 'clocks' | 'sockets' | 'http'
 	>();
 	if (options.requiredImports && options.requiredImports.length > 0) {
 		for (const requestedImport of options.requiredImports) {
+			const versionMatch = requestedImport.match(/(@.+)$/);
+			if (versionMatch) {
+				if (!/^@0\.2(?:\.|$)/.test(versionMatch[1])) {
+					throw new Error(
+						`wasm-rust browser runtime currently provides only WASIp2 browser shims; unsupported component import ${requestedImport}. wasm32-wasip3 works in-browser only while emitted components stay on transitional WASIp2 imports.`
+					);
+				}
+				requestedVersionSuffixes.add(versionMatch[1]);
+			}
 			const normalizedImport = requestedImport.replace(/@\d+(?:\.\d+)*$/, '');
 			if (normalizedImport.startsWith('wasi:cli/')) {
 				requiredFamilies.add('cli');
@@ -336,7 +346,7 @@ export async function createPreview2ImportObject(
 					}
 				};
 
-	for (const versionSuffix of ['', '@0.2.3']) {
+	for (const versionSuffix of requestedVersionSuffixes) {
 		if (requiredFamilies.has('cli')) {
 			importObject[`wasi:cli/environment${versionSuffix}`] = environment;
 			importObject[`wasi:cli/exit${versionSuffix}`] = resolvedCliModule.exit;

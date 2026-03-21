@@ -28,7 +28,8 @@ const SUPPORTED_EDITIONS = new Set(['2021', '2024']);
 const SUPPORTED_CRATE_TYPES = new Set(['bin']);
 const SUPPORTED_TARGET_TRIPLES = new Set<SupportedTargetTriple>([
 	'wasm32-wasip1',
-	'wasm32-wasip2'
+	'wasm32-wasip2',
+	'wasm32-wasip3'
 ]);
 
 interface WorkerLike {

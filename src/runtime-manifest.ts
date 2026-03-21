@@ -136,7 +136,11 @@ function expectStringArray(value: unknown, label: string): string[] {
 }
 
 function expectTargetTriple(value: unknown, label: string): SupportedTargetTriple {
-	if (value !== 'wasm32-wasip1' && value !== 'wasm32-wasip2') {
+	if (
+		value !== 'wasm32-wasip1' &&
+		value !== 'wasm32-wasip2' &&
+		value !== 'wasm32-wasip3'
+	) {
 		throw new Error(`invalid ${label} in wasm-rust runtime manifest`);
 	}
 	return value;
@@ -245,7 +249,7 @@ export function parseRuntimeManifest(value: unknown): RuntimeManifest {
 	if (root.manifestVersion === 2) {
 		const targets = expectObject(root.targets, 'targets');
 		const parsedTargets: RuntimeManifestV2['targets'] = {};
-		for (const targetTriple of ['wasm32-wasip1', 'wasm32-wasip2'] as const) {
+		for (const targetTriple of ['wasm32-wasip1', 'wasm32-wasip2', 'wasm32-wasip3'] as const) {
 			const targetValue = targets[targetTriple];
 			if (targetValue === undefined) {
 				continue;

@@ -158,6 +158,46 @@ describe('wasm-rust compiler edge cases', () => {
 		expect(result.artifact?.format).toBe('component');
 	});
 
+	it('selects wasm32-wasip3 when explicitly requested on a v2 runtime manifest', async () => {
+		const bitcode = new Uint8Array([0x42, 0x43, 0xc0, 0xde]);
+		const worker = new FakeWorker((message, currentWorker) => {
+			mirrorBitcode(message.sharedBitcodeBuffer, bitcode);
+			currentWorker.emitMessage({
+				type: 'success',
+				stdout: '',
+				stderr: '',
+				diagnostics: []
+			});
+		});
+		const selectedTargets: string[] = [];
+
+		const result = await compileRust(
+			{
+				code: 'fn main() { println!("hi"); }',
+				edition: '2024',
+				crateType: 'bin',
+				targetTriple: 'wasm32-wasip3'
+			},
+			{
+				loadManifest: async () => createRuntimeManifestV2(),
+				createWorker: () => worker,
+				linkBitcode: async (_bitcode, _manifest, targetConfig) => {
+					selectedTargets.push(targetConfig.targetTriple);
+					return {
+						wasm: new Uint8Array([0, 97, 115, 109]),
+						targetTriple: targetConfig.targetTriple,
+						format: targetConfig.artifactFormat
+					};
+				}
+			}
+		);
+
+		expect(result.success).toBe(true);
+		expect(selectedTargets).toEqual(['wasm32-wasip3']);
+		expect(result.artifact?.targetTriple).toBe('wasm32-wasip3');
+		expect(result.artifact?.format).toBe('component');
+	});
+
 	it('stops after the fifth transient worker failure and returns the last failure', async () => {
 		let createWorkerCalls = 0;
 

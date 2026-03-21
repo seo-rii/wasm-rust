@@ -116,6 +116,36 @@ export function createRuntimeManifestV2(overrides: Record<string, unknown> = {})
 				execution: {
 					kind: 'preview2-component'
 				}
+			},
+			'wasm32-wasip3': {
+				artifactFormat: 'component',
+				sysrootFiles: [
+					{
+						asset: 'sysroot/lib/rustlib/wasm32-wasip3/lib/libstd.rlib',
+						runtimePath: '/lib/rustlib/wasm32-wasip3/lib/libstd.rlib'
+					}
+				],
+				compile: {
+					kind: 'llvm-wasm+component-encoder',
+					llvm: {
+						llc: 'llvm/llc.js',
+						lld: 'llvm/lld.js'
+					},
+					link: {
+						allocatorObjectRuntimePath: '/work/alloc.o',
+						allocatorObjectAsset: 'link/alloc.o',
+						args: ['-o', '/work/main.wasm'],
+						files: [
+							{
+								asset: 'sysroot/lib/rustlib/wasm32-wasip3/lib/libstd.rlib',
+								runtimePath: '/rustlib/libstd.rlib'
+							}
+						]
+					}
+				},
+				execution: {
+					kind: 'preview2-component'
+				}
 			}
 		},
 		...overrides

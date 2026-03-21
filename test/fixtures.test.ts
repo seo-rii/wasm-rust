@@ -24,6 +24,8 @@ describe('wasm-rust runtime manifest', () => {
 		expect(manifest.defaultTargetTriple).toBe('wasm32-wasip1');
 		expect(manifest.targets['wasm32-wasip2']?.artifactFormat).toBe('component');
 		expect(manifest.targets['wasm32-wasip2']?.execution.kind).toBe('preview2-component');
+		expect(manifest.targets['wasm32-wasip3']?.artifactFormat).toBe('component');
+		expect(manifest.targets['wasm32-wasip3']?.execution.kind).toBe('preview2-component');
 	});
 
 	it('resolves asset URLs relative to the runtime base URL', () => {

@@ -100,6 +100,9 @@ describe('built browser bundle', () => {
 						asset: string;
 						runtimePath: string;
 					}>;
+					execution: {
+						kind: string;
+					};
 					compile: {
 						link: {
 							args: string[];
@@ -124,6 +127,10 @@ describe('built browser bundle', () => {
 		expect(v2Manifest.defaultTargetTriple).toBe('wasm32-wasip1');
 		expect(v2Manifest.compiler.compileTimeoutMs).toBe(120_000);
 		expect(v2Manifest.targets['wasm32-wasip1']?.artifactFormat).toBe('core-wasm');
+		if (v2Manifest.targets['wasm32-wasip3']) {
+			expect(v2Manifest.targets['wasm32-wasip3'].artifactFormat).toBe('component');
+			expect(v2Manifest.targets['wasm32-wasip3'].execution.kind).toBe('preview2-component');
+		}
 		for (const [targetTriple, targetConfig] of Object.entries(v2Manifest.targets)) {
 			expect(
 				targetConfig.compile.link.files.some(

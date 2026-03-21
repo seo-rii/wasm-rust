@@ -1,4 +1,4 @@
-export type SupportedTargetTriple = 'wasm32-wasip1' | 'wasm32-wasip2';
+export type SupportedTargetTriple = 'wasm32-wasip1' | 'wasm32-wasip2' | 'wasm32-wasip3';
 export type BrowserRustArtifactFormat = 'core-wasm' | 'component';
 
 export interface CompilerDiagnostic {

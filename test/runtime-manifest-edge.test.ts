@@ -80,6 +80,9 @@ describe('runtime manifest edge cases', () => {
 		expect(() => resolveTargetManifest(manifest, 'wasm32-wasip2')).toThrow(
 			/unsupported wasm-rust target wasm32-wasip2/
 		);
+		expect(() => resolveTargetManifest(manifest, 'wasm32-wasip3')).toThrow(
+			/unsupported wasm-rust target wasm32-wasip3/
+		);
 	});
 
 	it('fails when runtime-manifest fetch returns a non-ok response', async () => {
