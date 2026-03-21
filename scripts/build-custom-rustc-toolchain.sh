@@ -42,6 +42,13 @@ fi
 
 status=0
 
+if [[ "$INSTALL_TARGETS" == *"wasm32-wasip3"* ]]; then
+  {
+    printf '[%s] build-custom-rustc-toolchain: wasm32-wasip3 requested\n' "$(date -Is)"
+    printf '[%s] build-custom-rustc-toolchain: note rustc docs say wasm32-wasip3 still needs a libc [patch] as of 2025-10-01; ensure your rust source/toolchain inputs already include that patch before expecting a usable sysroot\n' "$(date -Is)"
+  } >> "$LOG"
+fi
+
 {
   printf '[%s] build-custom-rustc-toolchain: root=%s config=%s host=%s targets=%s\n' \
     "$(date -Is)" "$ROOT" "$CONFIG_PATH" "$COMPILER_HOST_TARGET" "$INSTALL_TARGETS"
