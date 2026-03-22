@@ -158,10 +158,11 @@ Shipped mitigation:
   - successful consumers should not surface those recovered internal failures as user-visible
     terminal errors
 - when `compile({ log: true })` is used, compile-time browser-rustc log lines are returned through
-  `result.stdout`
+  `result.logs`
   - this includes retry warnings and forwarded `compiler-worker` progress lines
-  - consumers can print that stdout directly in their terminal surface without scraping browser
-    console output
+  - consumers can forward those logs into their terminal surface without scraping browser console
+- `compile({ onProgress })` now receives structured stage/attempt/percent updates directly instead
+  of inferring progress from mixed stdout text
 - successful recovered compiles also drop recovered compiler `stderr`
   - user-facing terminals should only show the final program output, not transient LLVM worker crash text
 

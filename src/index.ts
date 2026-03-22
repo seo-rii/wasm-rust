@@ -1,9 +1,11 @@
 import {
 	compileRust,
+	type BrowserRustCompileProgress,
 	type BrowserRustCompiler,
 	type BrowserRustCompilerFactory,
 	type BrowserRustCompilerResult,
 	type BrowserRustCompileRequest,
+	type BrowserRustCompileStage,
 	type CompilerDiagnostic,
 	type CreateRustCompilerOptions
 } from './compiler.js';
@@ -18,6 +20,8 @@ export type {
 	BrowserRustCompilerFactory,
 	BrowserRustCompilerResult,
 	BrowserRustCompileRequest,
+	BrowserRustCompileProgress,
+	BrowserRustCompileStage,
 	CompilerDiagnostic,
 	CreateRustCompilerOptions,
 	BrowserExecutionOptions,

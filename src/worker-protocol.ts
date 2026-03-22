@@ -1,5 +1,9 @@
 import type { NormalizedRuntimeManifest } from './runtime-manifest.js';
-import type { BrowserRustCompileRequest, CompilerDiagnostic } from './types.js';
+import type {
+	BrowserRustCompileStage,
+	BrowserRustCompileWorkerRequest,
+	CompilerDiagnostic
+} from './types.js';
 
 export interface SharedRuntimeAssetFile {
 	runtimePath: string;
@@ -10,7 +14,7 @@ export interface CompileWorkerRequest {
 	type: 'compile';
 	runtimeBaseUrl: string;
 	manifest: NormalizedRuntimeManifest;
-	request: BrowserRustCompileRequest;
+	request: BrowserRustCompileWorkerRequest;
 	sharedBitcodeBuffer: SharedArrayBuffer;
 	sharedStatusBuffer: SharedArrayBuffer;
 }
@@ -37,10 +41,26 @@ export interface CompileWorkerLogMessage {
 	message: string;
 }
 
+export interface CompileWorkerProgressMessage {
+	type: 'progress';
+	progress: {
+		stage: Extract<
+			BrowserRustCompileStage,
+			'fetch-rustc' | 'fetch-sysroot' | 'prepare-fs' | 'init-thread-pool' | 'rustc-main'
+		>;
+		completed: number;
+		total: number;
+		message?: string;
+		bytesCompleted?: number;
+		bytesTotal?: number;
+	};
+}
+
 export type CompileWorkerMessage =
 	| CompileWorkerSuccessMessage
 	| CompileWorkerFailureMessage
-	| CompileWorkerLogMessage;
+	| CompileWorkerLogMessage
+	| CompileWorkerProgressMessage;
 
 export interface RustcThreadWorkerRequest {
 	type: 'thread-start';

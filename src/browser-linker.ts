@@ -6,6 +6,15 @@ import {
 } from './runtime-manifest.js';
 import type { BrowserRustCompilerResult } from './types.js';
 
+export interface LinkBitcodeWithLlvmWasmOptions {
+	onProgress?: (progress: {
+		stage: 'link' | 'componentize';
+		completed: number;
+		total: number;
+		message?: string;
+	}) => void;
+}
+
 function mkdirp(module: { FS: { mkdir(path: string): void } }, targetPath: string) {
 	const segments = targetPath.replace(/^\/+/, '').split('/').filter(Boolean);
 	let current = '';
@@ -41,8 +50,15 @@ export async function linkBitcodeWithLlvmWasm(
 	bitcode: Uint8Array,
 	manifest: NormalizedRuntimeManifest,
 	target: RuntimeTargetConfig,
-	runtimeBaseUrl: string
+	runtimeBaseUrl: string,
+	options: LinkBitcodeWithLlvmWasmOptions = {}
 ): Promise<NonNullable<BrowserRustCompilerResult['artifact']>> {
+	options.onProgress?.({
+		stage: 'link',
+		completed: 0,
+		total: 2,
+		message: 'running llvm-wasm code generation'
+	});
 	const { default: Llc } = await import(
 		resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.llc)
 	);
@@ -84,6 +100,12 @@ export async function linkBitcodeWithLlvmWasm(
 			error instanceof Error ? error.message : String(error)
 		);
 	}
+	options.onProgress?.({
+		stage: 'link',
+		completed: 1,
+		total: 2,
+		message: 'running lld link'
+	});
 
 	const { default: Lld } = await import(
 		resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.lld)
@@ -136,8 +158,26 @@ export async function linkBitcodeWithLlvmWasm(
 	}
 	try {
 		const coreWasm = lld.FS.readFile('/work/main.wasm');
+		options.onProgress?.({
+			stage: 'link',
+			completed: 2,
+			total: 2,
+			message: 'llvm-wasm link finished'
+		});
 		if (target.compile.kind === 'llvm-wasm+component-encoder') {
+			options.onProgress?.({
+				stage: 'componentize',
+				completed: 0,
+				total: 1,
+				message: 'encoding preview2 component'
+			});
 			const component = await componentizeCoreWasmToPreview2Component(coreWasm, runtimeBaseUrl);
+			options.onProgress?.({
+				stage: 'componentize',
+				completed: 1,
+				total: 1,
+				message: 'preview2 component ready'
+			});
 			return {
 				wasm: component,
 				targetTriple: target.targetTriple,

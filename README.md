@@ -21,7 +21,7 @@ with the upstream-required `libc` patch.
 - The result is returned through the `wasm-idle` browser compiler contract:
   - module exports `default` and `createRustCompiler`
   - factory returns `{ compile(request) }`
-  - `compile()` resolves to `{ success, stdout?, stderr?, diagnostics?, artifact }`
+  - `compile()` resolves to `{ success, stdout?, stderr?, diagnostics?, logs?, artifact }`
   - `artifact` contains `wasm`, `targetTriple`, and `format`
 
 Current scope:
@@ -91,11 +91,10 @@ pnpm run validate:standalone-browser
 
 That command runs:
 
-1. `pnpm build`
-2. `pnpm test`
-3. `pnpm run probe:browser-harness`
-4. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts`
-5. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts`
+1. `pnpm run test:ci:fast`
+2. `pnpm run probe:browser-harness`
+3. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts`
+4. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts`
 
 Latest verified browser result:
 
@@ -125,7 +124,10 @@ const result = await compiler.compile({
 	code: 'fn main() { println!("hi"); }',
 	edition: '2021',
 	crateType: 'bin',
-	targetTriple: 'wasm32-wasip3'
+	targetTriple: 'wasm32-wasip3',
+	onProgress(progress) {
+		console.log(progress.stage, progress.percent);
+	}
 });
 ```
 
@@ -136,6 +138,7 @@ Result shape:
   success: boolean;
   stdout?: string;
   stderr?: string;
+  logs?: string[];
   diagnostics?: Array<{
     lineNumber: number;
     columnNumber: number;

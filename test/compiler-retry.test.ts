@@ -217,7 +217,7 @@ describe('compileRust retry behavior', () => {
 			targetTriple: 'wasm32-wasip2',
 			format: 'component'
 		});
-		expect(result.stdout).not.toContain('memory access out of bounds');
+		expect(result.stdout).toBeUndefined();
 		expect(worker.terminated).toBe(true);
 	});
 
@@ -340,7 +340,8 @@ describe('compileRust retry behavior', () => {
 		expect(result.success).toBe(false);
 		expect(result.stderr).toBe('syntax error: expected `;`');
 		expect(result.diagnostics).toBeUndefined();
-		expect(result.stdout).toContain('[wasm-rust] manifest loaded target=wasm32-wasip1');
+		expect(result.stdout).toBeUndefined();
+		expect(result.logs).toBeUndefined();
 		expect(createWorkerCalls).toBe(1);
 	});
 
@@ -483,7 +484,8 @@ describe('compileRust retry behavior', () => {
 
 		expect(result.success).toBe(true);
 		expect(result.stdout).toContain('worker stdout');
-		expect(result.stdout).toContain('[wasm-rust] worker errored with mirrored bitcode present');
+		expect(result.stdout).not.toContain('[wasm-rust] worker errored with mirrored bitcode present');
+		expect(result.logs).toBeUndefined();
 		expect(result.diagnostics).toBeUndefined();
 		expect(result.artifact).toEqual({
 			wasm: new Uint8Array([5, 4, 3, 2]),
@@ -493,7 +495,7 @@ describe('compileRust retry behavior', () => {
 		expect(worker.terminated).toBe(true);
 	});
 
-	it('includes compile worker log lines in stdout when log is enabled', async () => {
+	it('returns compile worker log lines separately from stdout when log is enabled', async () => {
 		const bitcode = new Uint8Array([0x10, 0x20, 0x30]);
 		const worker = new FakeWorker((message, currentWorker) => {
 			currentWorker.emitMessage({
@@ -531,10 +533,10 @@ describe('compileRust retry behavior', () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.stdout).toContain(
+		expect(result.logs).toContain(
 			'[wasm-rust:compiler-worker] start target=wasm32-wasip1 timeout=1000ms'
 		);
-		expect(result.stdout).toContain('[wasm-rust:compiler-worker] rustc instance ready');
-		expect(result.stdout).toContain('worker stdout');
+		expect(result.logs).toContain('[wasm-rust:compiler-worker] rustc instance ready');
+		expect(result.stdout).toBe('worker stdout\n');
 	});
 });

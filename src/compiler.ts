@@ -10,14 +10,19 @@ import { readMirroredBitcode } from './rustc-runtime.js';
 import { readWorkerFailure, WORKER_STATUS_BUFFER_BYTES } from './worker-status.js';
 import type { CompileWorkerMessage, CompileWorkerRequest } from './worker-protocol.js';
 import type {
+	BrowserRustCompileProgress,
 	BrowserRustCompileRequest,
+	BrowserRustCompileStage,
+	BrowserRustCompileWorkerRequest,
 	BrowserRustCompilerResult,
 	CompilerDiagnostic,
 	SupportedTargetTriple
 } from './types.js';
 
 export type {
+	BrowserRustCompileProgress,
 	BrowserRustCompileRequest,
+	BrowserRustCompileStage,
 	BrowserRustCompiler,
 	BrowserRustCompilerFactory,
 	BrowserRustCompilerResult,
@@ -56,10 +61,23 @@ export interface CreateRustCompilerOptions {
 	dependencies?: CompileRustDependencies;
 }
 
-type SettledCompileWorkerMessage = Exclude<CompileWorkerMessage, { type: 'log' }>;
+type SettledCompileWorkerMessage = Exclude<CompileWorkerMessage, { type: 'log' | 'progress' }>;
 type BufferedCompileLog = {
 	level: 'log' | 'warn' | 'error' | 'debug';
 	message: string;
+};
+const PROGRESS_STAGE_RANGES: Record<BrowserRustCompileStage, readonly [number, number]> = {
+	manifest: [0, 5],
+	'fetch-rustc': [5, 15],
+	'fetch-sysroot': [15, 45],
+	'prepare-fs': [45, 55],
+	'init-thread-pool': [55, 65],
+	'rustc-main': [65, 80],
+	'await-bitcode': [80, 88],
+	link: [88, 98],
+	componentize: [98, 99],
+	retry: [0, 99],
+	done: [100, 100]
 };
 
 function describeWorkerErrorEvent(
@@ -90,13 +108,28 @@ function describeWorkerErrorEvent(
 function makeFailure(
 	stderr: string,
 	diagnostics?: CompilerDiagnostic[],
-	stdout?: string
+	stdout?: string,
+	logs?: string[]
 ): BrowserRustCompilerResult {
 	return {
 		success: false,
 		stdout,
 		stderr,
-		diagnostics
+		diagnostics,
+		...(logs && logs.length > 0 ? { logs } : {})
+	};
+}
+
+function attachCompileLogs(
+	result: BrowserRustCompilerResult,
+	logs: string[]
+): BrowserRustCompilerResult {
+	if (logs.length === 0) {
+		return result;
+	}
+	return {
+		...result,
+		logs
 	};
 }
 
@@ -134,30 +167,7 @@ export async function compileRust(
 		);
 	}
 
-	const runtimeBaseUrl = resolveVersionedAssetUrl(import.meta.url, './runtime/');
-	let loadedManifest;
-	try {
-		loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
-			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.v2.json')
-		);
-	} catch {
-		loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
-			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.json')
-		);
-	}
-	const manifest = normalizeRuntimeManifest(loadedManifest);
-	let targetConfig;
-	try {
-		targetConfig = resolveTargetManifest(manifest, request.targetTriple);
-	} catch (error) {
-		return makeFailure(error instanceof Error ? error.message : String(error));
-	}
-	const versionedModuleBaseUrl = new URL(import.meta.url);
-	versionedModuleBaseUrl.searchParams.set('v', manifest.version);
-	const versionedRuntimeBaseUrl = resolveVersionedAssetUrl(versionedModuleBaseUrl, './runtime/');
-	const compileTimeoutMs = request.prepare
-		? Math.max(manifest.compiler.compileTimeoutMs, 120_000)
-		: manifest.compiler.compileTimeoutMs;
+	const maxBrowserAttempts = 5;
 	const compileLogs: BufferedCompileLog[] = [];
 	const emitCompileLog = (
 		message: string,
@@ -184,35 +194,62 @@ export async function compileRust(
 		message: string,
 		level: 'log' | 'warn' | 'error' | 'debug' = 'log'
 	) => {
-		compileLogs.push({
-			level,
-			message
-		});
+		if (request.log) {
+			compileLogs.push({
+				level,
+				message
+			});
+		}
 		emitCompileLog(message, level);
 	};
 	const flushAttemptCompileLogs = (attemptCompileLogs: BufferedCompileLog[]) => {
-		compileLogs.push(...attemptCompileLogs);
+		if (request.log) {
+			compileLogs.push(...attemptCompileLogs);
+		}
 		for (const record of attemptCompileLogs) {
 			emitCompileLog(record.message, record.level);
 		}
 	};
-	const mergeCompileStdout = (stdout?: string) => {
-		if (compileLogs.length === 0) {
-			return stdout || undefined;
+	let lastProgressPercent = 0;
+	const emitCompileProgress = (
+		stage: BrowserRustCompileStage,
+		attempt: number,
+		payload: Omit<BrowserRustCompileProgress, 'stage' | 'attempt' | 'maxAttempts' | 'percent'>
+	) => {
+		if (!request.onProgress) {
+			return;
 		}
-		const compileLogText = `${compileLogs.map((entry) => entry.message).join('\n')}\n`;
-		if (!stdout) {
-			return compileLogText;
+		const safeTotal = Math.max(1, payload.total);
+		const safeCompleted = Math.max(0, Math.min(payload.completed, safeTotal));
+		let percent = lastProgressPercent;
+		if (stage === 'done') {
+			percent = 100;
+		} else if (stage !== 'retry') {
+			const [startPercent, endPercent] = PROGRESS_STAGE_RANGES[stage];
+			percent =
+				startPercent + ((endPercent - startPercent) * safeCompleted) / safeTotal;
+			percent = Math.min(99, Math.max(lastProgressPercent, percent));
 		}
-		return `${compileLogText}${stdout}`;
+		lastProgressPercent = percent;
+		try {
+			request.onProgress({
+				stage,
+				attempt,
+				maxAttempts: maxBrowserAttempts,
+				completed: safeCompleted,
+				total: safeTotal,
+				percent,
+				message: payload.message,
+				bytesCompleted: payload.bytesCompleted,
+				bytesTotal: payload.bytesTotal
+			});
+		} catch {}
 	};
-	recordPersistentCompileLog(
-		`[wasm-rust] manifest loaded target=${targetConfig.targetTriple} timeout=${compileTimeoutMs}ms idle=${manifest.compiler.artifactIdleMs}ms memory=${manifest.compiler.rustcMemory.initialPages}/${manifest.compiler.rustcMemory.maximumPages}`
-	);
 	const now = dependencies.now || (() => Date.now());
 	const sleep =
 		dependencies.sleep ||
 		((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+	const readCompileLogs = () => (request.log ? compileLogs.map((entry) => entry.message) : []);
 	const retryableFailurePatterns = [
 		'worker script error',
 		'failed to fetch dynamically imported module',
@@ -229,12 +266,49 @@ export async function compileRust(
 		"can't find crate for `std`",
 		'the compiler unexpectedly panicked'
 	];
-	const maxBrowserAttempts = 5;
+	emitCompileProgress('manifest', 1, {
+		completed: 0,
+		total: 1,
+		message: 'loading runtime manifest'
+	});
+	const runtimeBaseUrl = resolveVersionedAssetUrl(import.meta.url, './runtime/');
+	let loadedManifest;
+	try {
+		loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
+			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.v2.json')
+		);
+	} catch {
+		loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
+			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.json')
+		);
+	}
+	const manifest = normalizeRuntimeManifest(loadedManifest);
+	let targetConfig;
+	try {
+		targetConfig = resolveTargetManifest(manifest, request.targetTriple);
+	} catch (error) {
+		return makeFailure(error instanceof Error ? error.message : String(error));
+	}
+	const versionedModuleBaseUrl = new URL(import.meta.url);
+	versionedModuleBaseUrl.searchParams.set('v', manifest.version);
+	const versionedRuntimeBaseUrl = resolveVersionedAssetUrl(versionedModuleBaseUrl, './runtime/');
+	const compileTimeoutMs = request.prepare
+		? Math.max(manifest.compiler.compileTimeoutMs, 120_000)
+		: manifest.compiler.compileTimeoutMs;
+	emitCompileProgress('manifest', 1, {
+		completed: 1,
+		total: 1,
+		message: `loaded runtime manifest for ${targetConfig.targetTriple}`
+	});
+	recordPersistentCompileLog(
+		`[wasm-rust] manifest loaded target=${targetConfig.targetTriple} timeout=${compileTimeoutMs}ms idle=${manifest.compiler.artifactIdleMs}ms memory=${manifest.compiler.rustcMemory.initialPages}/${manifest.compiler.rustcMemory.maximumPages}`
+	);
 	const helperThreadFailureGraceMs = Math.max(
 		1_000,
 		Math.min(4_000, manifest.compiler.artifactIdleMs * 2)
 	);
 	let lastFailure = makeFailure('browser rustc failed before emitting LLVM bitcode');
+	const { onProgress: _ignoredOnProgress, ...workerRequest } = request;
 
 	for (let attempt = 1; attempt <= maxBrowserAttempts; attempt += 1) {
 		const attemptCompileLogs: BufferedCompileLog[] = [];
@@ -263,6 +337,10 @@ export async function compileRust(
 					recordAttemptCompileLog(event.data.message);
 					return;
 				}
+				if (event.data.type === 'progress') {
+					emitCompileProgress(event.data.progress.stage, attempt, event.data.progress);
+					return;
+				}
 				worker.removeEventListener('message', handleMessage);
 				worker.removeEventListener('error', handleError);
 				resolve(event.data);
@@ -284,13 +362,18 @@ export async function compileRust(
 			type: 'compile',
 			runtimeBaseUrl: versionedRuntimeBaseUrl.toString(),
 			manifest,
-			request,
+			request: workerRequest,
 			sharedBitcodeBuffer,
 			sharedStatusBuffer
 		} satisfies CompileWorkerRequest);
 		recordAttemptCompileLog(
 			`[wasm-rust] compile worker started attempt=${attempt}/${maxBrowserAttempts}`
 		);
+		emitCompileProgress('await-bitcode', attempt, {
+			completed: 0,
+			total: 1,
+			message: `waiting for mirrored LLVM bitcode attempt ${attempt}/${maxBrowserAttempts}`
+		});
 
 			const deadline = now() + compileTimeoutMs;
 			let lastSequence = 0;
@@ -389,13 +472,26 @@ export async function compileRust(
 					break;
 				}
 				recordAttemptCompileLog('[wasm-rust] mirrored bitcode settled; linking through llvm-wasm');
+				emitCompileProgress('await-bitcode', attempt, {
+					completed: 1,
+					total: 1,
+					message: 'mirrored LLVM bitcode ready'
+				});
+				emitCompileProgress('link', attempt, {
+					completed: 0,
+					total: 1,
+					message: 'linking mirrored LLVM bitcode'
+				});
 				let artifact: NonNullable<BrowserRustCompilerResult['artifact']>;
 				try {
 					artifact = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
 						mirrored.bytes,
 						manifest,
 						targetConfig,
-						versionedRuntimeBaseUrl.toString()
+						versionedRuntimeBaseUrl.toString(),
+						{
+							onProgress: (progress) => emitCompileProgress(progress.stage, attempt, progress)
+						}
 					);
 				} catch (error) {
 					recordAttemptCompileLog(
@@ -408,11 +504,18 @@ export async function compileRust(
 					break;
 				}
 				flushAttemptCompileLogs(attemptCompileLogs);
-				return {
-					success: true,
-					stdout: mergeCompileStdout(),
-					artifact
-				};
+				emitCompileProgress('done', attempt, {
+					completed: 1,
+					total: 1,
+					message: 'compile artifact ready'
+				});
+				return attachCompileLogs(
+					{
+						success: true,
+						artifact
+					},
+					readCompileLogs()
+				);
 			}
 		}
 
@@ -422,7 +525,7 @@ export async function compileRust(
 				`[wasm-rust] compile worker bootstrap failed ${workerBootstrapError.message}`,
 				'debug'
 			);
-			attemptResult = makeFailure(workerBootstrapError.message, undefined, mergeCompileStdout());
+			attemptResult = makeFailure(workerBootstrapError.message);
 		}
 
 		if (!attemptResult && !settledMessage) {
@@ -433,13 +536,26 @@ export async function compileRust(
 					'[wasm-rust] compile timeout reached after mirrored bitcode appeared; proceeding to llvm-wasm link',
 					'debug'
 				);
+				emitCompileProgress('await-bitcode', attempt, {
+					completed: 1,
+					total: 1,
+					message: 'mirrored LLVM bitcode ready after timeout'
+				});
+				emitCompileProgress('link', attempt, {
+					completed: 0,
+					total: 1,
+					message: 'linking mirrored LLVM bitcode'
+				});
 				let artifact: NonNullable<BrowserRustCompilerResult['artifact']>;
 				try {
 					artifact = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
 						mirrored.bytes,
 						manifest,
 						targetConfig,
-						versionedRuntimeBaseUrl.toString()
+						versionedRuntimeBaseUrl.toString(),
+						{
+							onProgress: (progress) => emitCompileProgress(progress.stage, attempt, progress)
+						}
 					);
 				} catch (error) {
 					recordAttemptCompileLog(
@@ -452,28 +568,29 @@ export async function compileRust(
 					break;
 				}
 				flushAttemptCompileLogs(attemptCompileLogs);
-				return {
-					success: true,
-					stdout: mergeCompileStdout(),
-					artifact
-				};
+				emitCompileProgress('done', attempt, {
+					completed: 1,
+					total: 1,
+					message: 'compile artifact ready'
+				});
+				return attachCompileLogs(
+					{
+						success: true,
+						artifact
+					},
+					readCompileLogs()
+				);
 			}
 			if (mirrored.overflowed) {
 				attemptResult = makeFailure(
-					'wasm-rust mirrored bitcode buffer overflowed before backend linking',
-					undefined,
-					mergeCompileStdout()
+					'wasm-rust mirrored bitcode buffer overflowed before backend linking'
 				);
 			} else {
 				recordAttemptCompileLog(
 					'[wasm-rust] compile timed out before mirrored bitcode appeared',
 					'debug'
 				);
-				attemptResult = makeFailure(
-					'browser rustc timed out before producing LLVM bitcode',
-					undefined,
-					mergeCompileStdout()
-				);
+				attemptResult = makeFailure('browser rustc timed out before producing LLVM bitcode');
 			}
 		}
 
@@ -485,20 +602,42 @@ export async function compileRust(
 					recordAttemptCompileLog(
 						'[wasm-rust] worker errored with mirrored bitcode present; linking through llvm-wasm'
 					);
+					emitCompileProgress('await-bitcode', attempt, {
+						completed: 1,
+						total: 1,
+						message: 'mirrored LLVM bitcode ready after worker error'
+					});
+					emitCompileProgress('link', attempt, {
+						completed: 0,
+						total: 1,
+						message: 'linking mirrored LLVM bitcode'
+					});
 					try {
 						const artifact = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
 							mirrored.bytes,
 							manifest,
 							targetConfig,
-							versionedRuntimeBaseUrl.toString()
+							versionedRuntimeBaseUrl.toString(),
+							{
+								onProgress: (progress) =>
+									emitCompileProgress(progress.stage, attempt, progress)
+							}
 						);
 						flushAttemptCompileLogs(attemptCompileLogs);
-						return {
-							success: true,
-							stdout: mergeCompileStdout(settledMessage.stdout),
-							diagnostics: settledMessage.diagnostics,
-							artifact
-						};
+						emitCompileProgress('done', attempt, {
+							completed: 1,
+							total: 1,
+							message: 'compile artifact ready'
+						});
+						return attachCompileLogs(
+							{
+								success: true,
+								stdout: settledMessage.stdout,
+								diagnostics: settledMessage.diagnostics,
+								artifact
+							},
+							readCompileLogs()
+						);
 					} catch (error) {
 						recordAttemptCompileLog(
 							`[wasm-rust] llvm-wasm link failed after worker error: ${error instanceof Error ? error.message : String(error)}`,
@@ -507,31 +646,44 @@ export async function compileRust(
 						attemptResult = makeFailure(
 							`browser rustc emitted LLVM bitcode but llvm-wasm link failed: ${error instanceof Error ? error.message : String(error)}`,
 							settledMessage.diagnostics,
-							mergeCompileStdout(settledMessage.stdout)
+							settledMessage.stdout
 						);
 					}
 				} else if (mirrored.overflowed) {
 					attemptResult = makeFailure(
 						'wasm-rust mirrored bitcode buffer overflowed before backend linking',
 						undefined,
-						mergeCompileStdout(settledMessage.stdout)
+						settledMessage.stdout
 					);
 				} else {
 					attemptResult = makeFailure(
 						settledMessage.stderr || settledMessage.message,
 						settledMessage.diagnostics,
-						mergeCompileStdout(settledMessage.stdout)
+						settledMessage.stdout
 					);
 				}
 			} else if (mirrored.length > 0 && !mirrored.overflowed) {
 				recordAttemptCompileLog('[wasm-rust] worker settled with mirrored bitcode; linking through llvm-wasm');
+				emitCompileProgress('await-bitcode', attempt, {
+					completed: 1,
+					total: 1,
+					message: 'mirrored LLVM bitcode ready after worker exit'
+				});
+				emitCompileProgress('link', attempt, {
+					completed: 0,
+					total: 1,
+					message: 'linking mirrored LLVM bitcode'
+				});
 				let artifact: NonNullable<BrowserRustCompilerResult['artifact']> | null = null;
 				try {
 					artifact = await (dependencies.linkBitcode || linkBitcodeWithLlvmWasm)(
 						mirrored.bytes,
 						manifest,
 						targetConfig,
-						versionedRuntimeBaseUrl.toString()
+						versionedRuntimeBaseUrl.toString(),
+						{
+							onProgress: (progress) => emitCompileProgress(progress.stage, attempt, progress)
+						}
 					);
 				} catch (error) {
 					recordAttemptCompileLog(
@@ -541,7 +693,7 @@ export async function compileRust(
 					attemptResult = makeFailure(
 						`browser rustc emitted LLVM bitcode but llvm-wasm link failed: ${error instanceof Error ? error.message : String(error)}`,
 						settledMessage.diagnostics,
-						mergeCompileStdout(settledMessage.stdout)
+						settledMessage.stdout
 					);
 				}
 				if (!attemptResult) {
@@ -549,39 +701,43 @@ export async function compileRust(
 						attemptResult = makeFailure(
 							'browser rustc emitted LLVM bitcode but llvm-wasm returned no wasm artifact',
 							settledMessage.diagnostics,
-							mergeCompileStdout(settledMessage.stdout)
+							settledMessage.stdout
 						);
 						continue;
 					}
 					flushAttemptCompileLogs(attemptCompileLogs);
-					return {
-						success: true,
-						stdout: mergeCompileStdout(settledMessage.stdout),
-						diagnostics: settledMessage.diagnostics,
-						artifact
-					};
+					emitCompileProgress('done', attempt, {
+						completed: 1,
+						total: 1,
+						message: 'compile artifact ready'
+					});
+					return attachCompileLogs(
+						{
+							success: true,
+							stdout: settledMessage.stdout,
+							diagnostics: settledMessage.diagnostics,
+							artifact
+						},
+						readCompileLogs()
+					);
 				}
 			} else if (mirrored.overflowed) {
 				attemptResult = makeFailure(
 					'wasm-rust mirrored bitcode buffer overflowed before backend linking',
 					undefined,
-					mergeCompileStdout(settledMessage.stdout)
+					settledMessage.stdout
 				);
 			} else {
 				attemptResult = makeFailure(
 					settledMessage.stderr || 'browser rustc failed before emitting LLVM bitcode',
 					settledMessage.diagnostics,
-					mergeCompileStdout(settledMessage.stdout)
+					settledMessage.stdout
 				);
 			}
 		}
 
 		if (!attemptResult) {
-			attemptResult = makeFailure(
-				'browser rustc failed before emitting LLVM bitcode',
-				undefined,
-				mergeCompileStdout()
-			);
+			attemptResult = makeFailure('browser rustc failed before emitting LLVM bitcode');
 		}
 
 		lastFailure = attemptResult;
@@ -596,14 +752,17 @@ export async function compileRust(
 				`[wasm-rust] browser rustc attempt ${attempt}/${maxBrowserAttempts} failed; retrying`,
 				'warn'
 			);
+			emitCompileProgress('retry', Math.min(attempt + 1, maxBrowserAttempts), {
+				completed: Math.min(attempt + 1, maxBrowserAttempts),
+				total: maxBrowserAttempts,
+				message: `retrying browser rustc after attempt ${attempt}/${maxBrowserAttempts} failed`
+			});
 		} else {
 			flushAttemptCompileLogs(attemptCompileLogs);
-		}
-		if (!shouldRetry) {
-			return attemptResult;
+			return attachCompileLogs(attemptResult, readCompileLogs());
 		}
 		await sleep(Math.min(500 * attempt, 2_000));
 	}
 
-	return lastFailure;
+	return attachCompileLogs(lastFailure, readCompileLogs());
 }

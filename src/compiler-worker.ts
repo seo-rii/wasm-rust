@@ -93,6 +93,16 @@ function emitCompileWorkerLog(request: CompileWorkerRequest, message: string) {
 	} satisfies CompileWorkerMessage);
 }
 
+function emitCompileWorkerProgress(
+	request: CompileWorkerRequest,
+	progress: Extract<CompileWorkerMessage, { type: 'progress' }>['progress']
+) {
+	postMessage({
+		type: 'progress',
+		progress
+	} satisfies CompileWorkerMessage);
+}
+
 async function compileRustInWorker(request: CompileWorkerRequest) {
 	const target = resolveTargetManifest(request.manifest, request.request.targetTriple);
 	const threadPoolSize = 4;
@@ -104,13 +114,34 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 		request.runtimeBaseUrl,
 		request.manifest.compiler.rustcWasm
 	);
+	emitCompileWorkerProgress(request, {
+		stage: 'fetch-rustc',
+		completed: 0,
+		total: 1,
+		message: 'fetching rustc.wasm'
+	});
 	const rustcBytes = await fetchRuntimeAssetBytes(rustcUrl, 'rustc.wasm');
 	emitCompileWorkerLog(
 		request,
 		`[wasm-rust:compiler-worker] rustc.wasm fetched bytes=${rustcBytes.byteLength}`
 	);
+	emitCompileWorkerProgress(request, {
+		stage: 'fetch-rustc',
+		completed: 1,
+		total: 1,
+		message: 'rustc.wasm ready',
+		bytesCompleted: rustcBytes.byteLength,
+		bytesTotal: rustcBytes.byteLength
+	});
 	const rustcModule = await WebAssembly.compile(rustcBytes);
 	let fetchedSysrootFiles = 0;
+	let fetchedSysrootBytes = 0;
+	emitCompileWorkerProgress(request, {
+		stage: 'fetch-sysroot',
+		completed: 0,
+		total: target.sysrootFiles.length,
+		message: `fetching ${target.sysrootFiles.length} sysroot assets`
+	});
 	const sysrootAssets: SharedRuntimeAssetFile[] = await Promise.all(
 		target.sysrootFiles.map(async (entry) => {
 			const assetUrl = resolveVersionedAssetUrl(request.runtimeBaseUrl, entry.asset);
@@ -122,6 +153,14 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 			const sharedBuffer = new SharedArrayBuffer(bytes.byteLength);
 			new Uint8Array(sharedBuffer).set(bytes);
 			fetchedSysrootFiles += 1;
+			fetchedSysrootBytes += bytes.byteLength;
+			emitCompileWorkerProgress(request, {
+				stage: 'fetch-sysroot',
+				completed: fetchedSysrootFiles,
+				total: target.sysrootFiles.length,
+				message: `fetched sysroot asset ${entry.runtimePath}`,
+				bytesCompleted: fetchedSysrootBytes
+			});
 			if (
 				request.request.log &&
 				(fetchedSysrootFiles === 1 ||
@@ -148,6 +187,12 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 		request,
 		`[wasm-rust:compiler-worker] shared memory created initial=${request.manifest.compiler.rustcMemory.initialPages} max=${request.manifest.compiler.rustcMemory.maximumPages}`
 	);
+	emitCompileWorkerProgress(request, {
+		stage: 'prepare-fs',
+		completed: 0,
+		total: 1,
+		message: 'preparing in-memory filesystem'
+	});
 	const { fds, stdout, stderr } = await buildPreopenedDirectories(
 		request.manifest,
 		sysrootAssets,
@@ -155,9 +200,16 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 		request.sharedBitcodeBuffer
 	);
 	emitCompileWorkerLog(request, '[wasm-rust:compiler-worker] preopened directories ready');
+	emitCompileWorkerProgress(request, {
+		stage: 'prepare-fs',
+		completed: 1,
+		total: 1,
+		message: 'in-memory filesystem ready'
+	});
 	const args = buildRustcArguments(request.request, request.manifest);
 	const threadCounter = new Int32Array(new SharedArrayBuffer(4));
 	const slotBuffers = Array.from({ length: threadPoolSize }, () => new SharedArrayBuffer(16));
+	let initializedThreadPoolSlots = 0;
 	let reportedThreadFailure = false;
 	const reportThreadFailure = (message: string) => {
 		if (reportedThreadFailure) return;
@@ -167,6 +219,12 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 			message
 		} satisfies CompileWorkerMessage);
 	};
+	emitCompileWorkerProgress(request, {
+		stage: 'init-thread-pool',
+		completed: 0,
+		total: threadPoolSize,
+		message: `initializing ${threadPoolSize} helper threads`
+	});
 	const threadPool = await Promise.all(
 		slotBuffers.map(async (slotBuffer, slotIndex) => {
 			const slotState = new Int32Array(slotBuffer);
@@ -246,6 +304,13 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 				throw new Error(`rustc thread pool slot ${slotIndex} failed to initialize`);
 			}
 			emitCompileWorkerLog(request, `[wasm-rust:compiler-worker] pool=${slotIndex} initialized`);
+			initializedThreadPoolSlots += 1;
+			emitCompileWorkerProgress(request, {
+				stage: 'init-thread-pool',
+				completed: initializedThreadPoolSlots,
+				total: threadPoolSize,
+				message: `initialized helper thread slot ${slotIndex + 1}/${threadPoolSize}`
+			});
 			return {
 				slotIndex,
 				slotState
@@ -285,6 +350,12 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 	let exitCode: number | null = null;
 	try {
 		emitCompileWorkerLog(request, '[wasm-rust:compiler-worker] starting rustc main');
+		emitCompileWorkerProgress(request, {
+			stage: 'rustc-main',
+			completed: 0,
+			total: 1,
+			message: 'running rustc frontend'
+		});
 		exitCode = instantiated.wasiInstance.start(instance);
 	} catch (error) {
 		const stderrText = stderr.getText();
@@ -302,6 +373,12 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 		request,
 		`[wasm-rust:compiler-worker] rustc main exited code=${String(exitCode)}`
 	);
+	emitCompileWorkerProgress(request, {
+		stage: 'rustc-main',
+		completed: 1,
+		total: 1,
+		message: `rustc frontend finished with exit code ${String(exitCode)}`
+	});
 	postMessage({
 		type: 'result',
 		exitCode,

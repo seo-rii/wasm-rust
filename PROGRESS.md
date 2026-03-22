@@ -19,6 +19,10 @@ This file records the current checked-in state only. Historical investigation de
   wrappers so deployed pages with stricter CSP do not fail at browser worker bootstrap.
 - Browser retries are now surfaced as visible warnings with the retry reason instead of only debug
   transitions into attempts `2/5`, `3/5`, and so on.
+- The public browser compiler request now accepts `onProgress`, and compile-time logs are returned
+  separately through `result.logs` instead of being merged into `stdout`.
+- The standalone browser harness now renders a real progress bar from structured progress events
+  instead of inferring status from log text alone.
 - Browser helper-thread startup is now handshake-based and the packaged `rustc.wasm` host injects
   `RUST_MIN_STACK=8388608` plus current required `env` shims, which materially improved helper
   startup stability.

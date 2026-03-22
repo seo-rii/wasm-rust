@@ -15,18 +15,24 @@ const resultPanel = document.querySelector('#result-panel');
 const logPanel = document.querySelector('#log-panel');
 const isolationPill = document.querySelector('#isolation-pill');
 const runPill = document.querySelector('#run-pill');
+const progressPill = document.querySelector('#progress-pill');
+const progressBar = document.querySelector('#progress-bar');
 const runtimeManifestUrl = new URL('/dist/runtime/runtime-manifest.json', window.location.href);
 
 const state = {
-	lastResult: null
+	lastResult: null,
+	progressEvents: []
 };
 
 let manifestDefaultsPromise;
 
-function appendLog(message, kind = 'info') {
+function appendLog(message, kind = 'info', echo = true) {
 	const line = `[${new Date().toISOString()}][${kind}] ${message}`;
 	logPanel.textContent += `${line}\n`;
 	logPanel.scrollTop = logPanel.scrollHeight;
+	if (!echo) {
+		return;
+	}
 	if (kind === 'error') {
 		console.error(line);
 		return;
@@ -36,6 +42,12 @@ function appendLog(message, kind = 'info') {
 		return;
 	}
 	console.log(line);
+}
+
+function updateProgress(progress) {
+	state.progressEvents.push(progress);
+	progressBar.value = progress.percent;
+	progressPill.textContent = `progress: ${Math.round(progress.percent)}% ${progress.stage} (${progress.attempt}/${progress.maxAttempts})`;
 }
 
 async function loadHarnessManifest() {
@@ -93,6 +105,9 @@ async function runWasmRustHarness(overrides = {}) {
 	const options = readHarnessOptions(baseManifest, overrides);
 	const startedAt = performance.now();
 	logPanel.textContent = '';
+	state.progressEvents = [];
+	progressBar.value = 0;
+	progressPill.textContent = 'progress: 0% manifest (1/5)';
 	runPill.textContent = 'status: running';
 	appendLog(
 		`starting compile target=${options.targetTriple} timeout=${options.compileTimeoutMs} idle=${options.artifactIdleMs} memory=${options.initialPages}/${options.maximumPages}`
@@ -121,8 +136,14 @@ async function runWasmRustHarness(overrides = {}) {
 		edition: options.edition,
 		crateType: 'bin',
 		targetTriple: options.targetTriple,
-		log: options.log
+		log: options.log,
+		onProgress: (progress) => {
+			updateProgress(progress);
+		}
 	});
+	for (const line of compileResult.logs || []) {
+		appendLog(line, 'compile', false);
+	}
 	const result = {
 		crossOriginIsolated: window.crossOriginIsolated,
 		elapsedMs: Math.round(performance.now() - startedAt),
@@ -138,6 +159,7 @@ async function runWasmRustHarness(overrides = {}) {
 			stdout: compileResult.stdout ?? '',
 			stderr: compileResult.stderr ?? '',
 			diagnostics: compileResult.diagnostics ?? [],
+			logs: compileResult.logs ?? [],
 			hasWasm: Boolean(compileResult.artifact?.wasm),
 			hasWat: Boolean(compileResult.artifact?.wat),
 			targetTriple: compileResult.artifact?.targetTriple ?? options.targetTriple,
@@ -203,6 +225,8 @@ runButton.addEventListener('click', async () => {
 		state.lastResult = result;
 		resultPanel.textContent = JSON.stringify(result, null, 2);
 		runPill.textContent = 'status: failed';
+		progressPill.textContent = 'progress: failed';
+		progressBar.value = 0;
 		appendLog(result.compile.stderr, 'error');
 	} finally {
 		runButton.disabled = false;

@@ -104,6 +104,16 @@ describe('browser harness direct Playwright integration', () => {
 					expect(result.compile.targetTriple).toBe(targetTriple);
 					expect(result.runtime?.exitCode).toBe(0);
 					expect(result.runtime?.stdout).toBe('hi\n');
+					const progressState = await page.evaluate(() => ({
+						pill: document.querySelector('#progress-pill')?.textContent || '',
+						last:
+							window.__wasmRustBrowserHarnessState.progressEvents[
+								window.__wasmRustBrowserHarnessState.progressEvents.length - 1
+							] || null
+					}));
+					expect(progressState.pill).toContain('100%');
+					expect(progressState.last?.stage).toBe('done');
+					expect(progressState.last?.percent).toBe(100);
 					if (targetTriple === 'wasm32-wasip2') {
 						expect(result.compile.format).toBe('component');
 					}

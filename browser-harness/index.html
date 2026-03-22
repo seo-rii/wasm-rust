@@ -133,6 +133,36 @@
 			color: #4c5a72;
 		}
 
+		.progress-track {
+			display: grid;
+			gap: 8px;
+			margin-top: 14px;
+		}
+
+		progress {
+			width: 100%;
+			height: 12px;
+			border: 0;
+			border-radius: 999px;
+			overflow: hidden;
+			background: rgba(15, 93, 226, 0.12);
+		}
+
+		progress::-webkit-progress-bar {
+			background: rgba(15, 93, 226, 0.12);
+			border-radius: 999px;
+		}
+
+		progress::-webkit-progress-value {
+			background: linear-gradient(90deg, #0f5de2, #0a88d8);
+			border-radius: 999px;
+		}
+
+		progress::-moz-progress-bar {
+			background: linear-gradient(90deg, #0f5de2, #0a88d8);
+			border-radius: 999px;
+		}
+
 		.pill {
 			display: inline-flex;
 			align-items: center;
@@ -207,6 +237,10 @@
 				<div class="status">
 					<span class="pill" id="isolation-pill">crossOriginIsolated: pending</span>
 					<span class="pill" id="run-pill">status: idle</span>
+					<span class="pill" id="progress-pill">progress: idle</span>
+				</div>
+				<div class="progress-track">
+					<progress id="progress-bar" max="100" value="0"></progress>
 				</div>
 				<p>Structured result</p>
 				<pre id="result-panel">{}</pre>
