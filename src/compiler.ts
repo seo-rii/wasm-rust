@@ -296,22 +296,52 @@ export async function compileRust(
 			let lastSequence = 0;
 			let lastSequenceChange = now();
 			let settledMessage: SettledCompileWorkerMessage | null = null;
+			let workerResultConsumed = false;
 			let workerBootstrapError: Error | null = null;
 			let attemptResult: BrowserRustCompilerResult | null = null;
 			let pendingHelperThreadFailure: string | null = null;
 			let pendingHelperThreadFailureObservedAt = 0;
+			let deferredWorkerError: Extract<SettledCompileWorkerMessage, { type: 'error' }> | null = null;
 
 			while (!settledMessage && !workerBootstrapError && now() < deadline) {
 				const raced = await Promise.race([
-					workerResult
-						.then((message) => ({ type: 'message' as const, message }))
-						.catch((error) => ({ type: 'worker-error' as const, error })),
+					...(!workerResultConsumed
+						? [
+								workerResult
+									.then((message) => ({ type: 'message' as const, message }))
+									.catch((error) => ({ type: 'worker-error' as const, error }))
+							]
+						: []),
 					sleep(250).then(() => ({ type: 'tick' as const }))
 				]);
-			if (raced.type === 'message') {
-				settledMessage = raced.message;
-				break;
-			}
+				if (raced.type === 'message') {
+					workerResultConsumed = true;
+					const mirrored = readMirroredBitcode(sharedBitcodeBuffer);
+					if (raced.message.type === 'error') {
+						const normalizedWorkerFailureText = [
+							raced.message.message || '',
+							raced.message.stderr || ''
+						]
+							.join('\n')
+							.toLowerCase();
+						const shouldDeferWorkerFailure =
+							mirrored.length === 0 &&
+							!mirrored.overflowed &&
+							mirrored.writeSequence > 0 &&
+							normalizedWorkerFailureText.includes(
+								'browser rustc helper thread failed before producing llvm bitcode'
+							);
+						if (shouldDeferWorkerFailure) {
+							deferredWorkerError = raced.message;
+							pendingHelperThreadFailure =
+								raced.message.stderr || raced.message.message || pendingHelperThreadFailure;
+							pendingHelperThreadFailureObservedAt = now();
+							continue;
+						}
+					}
+					settledMessage = raced.message;
+					break;
+				}
 				if (raced.type === 'worker-error') {
 					workerBootstrapError =
 						raced.error instanceof Error ? raced.error : new Error(String(raced.error));
@@ -323,8 +353,16 @@ export async function compileRust(
 					pendingHelperThreadFailure = helperThreadFailure;
 					pendingHelperThreadFailureObservedAt = now();
 				}
+				if (deferredWorkerError && mirrored.writeSequence !== lastSequence) {
+					pendingHelperThreadFailureObservedAt = now();
+				}
 				if (mirrored.length === 0 && pendingHelperThreadFailure) {
 					if (now() - pendingHelperThreadFailureObservedAt >= helperThreadFailureGraceMs) {
+						if (deferredWorkerError) {
+							settledMessage = deferredWorkerError;
+							deferredWorkerError = null;
+							break;
+						}
 						worker.terminate();
 						attemptResult = makeFailure(pendingHelperThreadFailure);
 						break;
@@ -332,6 +370,7 @@ export async function compileRust(
 				} else if (mirrored.length > 0) {
 					pendingHelperThreadFailure = null;
 					pendingHelperThreadFailureObservedAt = 0;
+					deferredWorkerError = null;
 				}
 				if (mirrored.writeSequence !== lastSequence) {
 					lastSequence = mirrored.writeSequence;

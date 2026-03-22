@@ -27,10 +27,16 @@ const THREAD_COUNTER_BYTES = 4;
 const THREAD_READY_BYTES = 4;
 const THREAD_DEBUG = process.env.WASM_RUST_THREAD_DEBUG === '1';
 const USE_NODE_FS = process.env.WASM_RUST_NODE_FS === '1';
+const THREAD_STARTUP_STATE_FAILED = -1;
+const THREAD_STARTUP_STATE_STARTING = 1;
+const THREAD_STARTUP_STATE_INSTANTIATED = 2;
+const THREAD_STARTUP_STATE_ENTERING = 3;
 const MEMORY_INITIAL_PAGES = Number(process.env.WASM_RUST_MEMORY_INITIAL_PAGES || '256');
 const MEMORY_MAXIMUM_PAGES = Number(process.env.WASM_RUST_MEMORY_MAXIMUM_PAGES || '16384');
 const HOST_ROOT_PATH = process.env.WASM_RUST_HOST_ROOT_PATH || null;
 const KEEP_HOST_ROOT = process.env.WASM_RUST_KEEP_HOST_ROOT === '1';
+const RUSTC_STRING_GROW_BY_IMPORT =
+	'_ZNSt3__212basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEE9__grow_byEmmmmmm';
 
 class CaptureFd extends Fd {
 	constructor(outputStream = null) {
@@ -222,6 +228,24 @@ function createSharedSafeRandomGet(memory) {
 	};
 }
 
+function waitForThreadStartupState(state, minimumState, timeoutMs, failureMessage, timeoutMessage) {
+	const deadline = Date.now() + timeoutMs;
+	while (true) {
+		const currentState = Atomics.load(state, 0);
+		if (currentState >= minimumState) {
+			return currentState;
+		}
+		if (currentState <= THREAD_STARTUP_STATE_FAILED) {
+			throw new Error(failureMessage);
+		}
+		const remaining = deadline - Date.now();
+		if (remaining <= 0) {
+			throw new Error(timeoutMessage);
+		}
+		Atomics.wait(state, 0, currentState, Math.min(remaining, 1000));
+	}
+}
+
 async function instantiateThreadContext({
 	rustcModule,
 	rustcWasmPath,
@@ -323,13 +347,14 @@ async function instantiateThreadContext({
 	}
 	instance = await WebAssembly.instantiate(module, {
 		env: {
-			memory
+			memory,
+			[RUSTC_STRING_GROW_BY_IMPORT]: () => {}
 		},
 		wasi: {
 			'thread-spawn': threadSpawner
-			},
-			wasi_snapshot_preview1: wasiInstance.wasiImport
-		});
+		},
+		wasi_snapshot_preview1: wasiInstance.wasiImport
+	});
 	if (THREAD_DEBUG) {
 		console.error('[wasm-rust-thread] context:instantiate-done');
 	}
@@ -411,10 +436,17 @@ function createRealThreadSpawner({
 			console.error(`wasi thread ${threadId} failed`, error);
 		});
 		let readyResult = 'not-needed';
-		let waitStart = Date.now();
-		while (Atomics.load(readyState, 0) < 2 && Date.now() - waitStart < 120000) {
-			const expected = Atomics.load(readyState, 0);
-			readyResult = Atomics.wait(readyState, 0, expected, 1000);
+		try {
+			waitForThreadStartupState(
+				readyState,
+				THREAD_STARTUP_STATE_ENTERING,
+				120000,
+				`wasi thread ${threadId} failed before entering wasi_thread_start`,
+				`wasi thread ${threadId} timed out before entering wasi_thread_start`
+			);
+		} catch (error) {
+			readyResult = error instanceof Error ? error.message : String(error);
+			throw error;
 		}
 		if (THREAD_DEBUG) {
 			console.error(
@@ -461,7 +493,7 @@ async function runThreadWorkerEntry() {
 		console.error(`[wasm-rust-thread] enter ${threadId} startArg=${startArg}`);
 	}
 	await writeThreadLog('enter', { startArg });
-	Atomics.store(readyState, 0, 1);
+	Atomics.store(readyState, 0, THREAD_STARTUP_STATE_STARTING);
 	Atomics.notify(readyState, 0);
 	const { instance, wasiInstance } = await instantiateThreadContext({
 		rustcModule,
@@ -481,9 +513,11 @@ async function runThreadWorkerEntry() {
 	});
 	wasiInstance.inst = instance;
 	await writeThreadLog('ready');
-	Atomics.store(readyState, 0, 2);
+	Atomics.store(readyState, 0, THREAD_STARTUP_STATE_INSTANTIATED);
 	Atomics.notify(readyState, 0);
 	try {
+		Atomics.store(readyState, 0, THREAD_STARTUP_STATE_ENTERING);
+		Atomics.notify(readyState, 0);
 		instance.exports.wasi_thread_start(threadId, startArg);
 		await writeThreadLog('done');
 		if (THREAD_DEBUG) {
@@ -566,7 +600,8 @@ async function instantiateRustc({
 			};
 	instance = await WebAssembly.instantiate(rustcModule, {
 		env: {
-			memory
+			memory,
+			[RUSTC_STRING_GROW_BY_IMPORT]: () => {}
 		},
 		wasi: {
 			'thread-spawn': threadSpawner

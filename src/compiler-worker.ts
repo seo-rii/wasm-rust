@@ -9,6 +9,11 @@ import type {
 import { createModuleWorker } from './module-worker.js';
 import { resolveTargetManifest } from './runtime-manifest.js';
 import { buildPreopenedDirectories, instantiateRustcInstance } from './rustc-runtime.js';
+import {
+	dispatchThreadPoolSlotAndWait,
+	reserveIdleThreadPoolSlot,
+	THREAD_STARTUP_STATE_INSTANTIATED
+} from './thread-startup.js';
 
 const ARCHIVE_MAGIC = new Uint8Array([0x21, 0x3c, 0x61, 0x72, 0x63, 0x68, 0x3e, 0x0a]);
 
@@ -170,29 +175,34 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 				import.meta.url,
 				'./rustc-thread-worker.js'
 			);
-				if (request.request.log) {
-					threadWorkerUrl.searchParams.set('log', '1');
+			if (request.request.log) {
+				threadWorkerUrl.searchParams.set('log', '1');
+			}
+			const worker = createModuleWorker(threadWorkerUrl);
+			worker.addEventListener('message', (event: MessageEvent<RustcThreadWorkerLogMessage>) => {
+				if (event.data?.type !== 'thread-log') {
+					return;
 				}
-				const worker = createModuleWorker(threadWorkerUrl);
-				worker.addEventListener('message', (event: MessageEvent<RustcThreadWorkerLogMessage>) => {
-					if (event.data?.type !== 'thread-log') {
-						return;
-					}
-					if (event.data.phase === 'pool-error' || event.data.phase === 'error') {
-						reportThreadFailure(
-							event.data.detail ||
-								`rustc browser helper thread ${event.data.threadId} failed`
+				if (event.data.phase === 'pool-error' || event.data.phase === 'error') {
+					if (request.request.log) {
+						emitCompileWorkerLog(
+							request,
+							`[wasm-rust:compiler-worker] thread=${event.data.threadId} phase=${event.data.phase}${event.data.detail ? ` detail=${event.data.detail}` : ''}`
 						);
-						return;
 					}
-					if (!request.request.log) {
-						return;
-					}
-					emitCompileWorkerLog(
-						request,
-						`[wasm-rust:compiler-worker] thread=${event.data.threadId} phase=${event.data.phase}${event.data.detail ? ` detail=${event.data.detail}` : ''}`
+					reportThreadFailure(
+						event.data.detail || `rustc browser helper thread ${event.data.threadId} failed`
 					);
-				});
+					return;
+				}
+				if (!request.request.log) {
+					return;
+				}
+				emitCompileWorkerLog(
+					request,
+					`[wasm-rust:compiler-worker] thread=${event.data.threadId} phase=${event.data.phase}${event.data.detail ? ` detail=${event.data.detail}` : ''}`
+				);
+			});
 			worker.addEventListener('error', (event) => {
 				emitCompileWorkerLog(
 					request,
@@ -244,17 +254,22 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 	);
 	const threadSpawner = (startArg: number) => {
 		const threadId = Atomics.add(threadCounter, 0, 1) + 1;
-		const slot = threadPool.find((entry) => Atomics.load(entry.slotState, 0) === 0);
+		const slot = reserveIdleThreadPoolSlot(threadPool);
 		if (!slot) {
 			throw new Error('rustc browser thread pool exhausted');
 		}
-		Atomics.store(slot.slotState, 1, threadId);
-		Atomics.store(slot.slotState, 2, startArg);
-		Atomics.store(slot.slotState, 0, 1);
-		Atomics.notify(slot.slotState, 0);
 		emitCompileWorkerLog(
 			request,
 			`[wasm-rust:compiler-worker] assign thread=${threadId} startArg=${startArg} slot=${slot.slotIndex}`
+		);
+		dispatchThreadPoolSlotAndWait(
+			slot.slotState,
+			threadId,
+			startArg,
+			THREAD_STARTUP_STATE_INSTANTIATED,
+			30_000,
+			`rustc browser helper thread ${threadId} failed before instantiating wasi_thread_start`,
+			`rustc browser helper thread ${threadId} timed out before instantiating wasi_thread_start`
 		);
 		return threadId;
 	};

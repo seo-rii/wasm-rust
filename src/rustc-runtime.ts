@@ -17,6 +17,10 @@ const BITCODE_LENGTH_INDEX = 0;
 const BITCODE_OVERFLOW_INDEX = 1;
 const BITCODE_WRITE_SEQUENCE_INDEX = 2;
 const BITCODE_HEADER_LENGTH = 16;
+const RUSTC_STRING_GROW_BY_IMPORT =
+	'_ZNSt3__212basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEE9__grow_byEmmmmmm';
+
+export const DEFAULT_RUSTC_ENV = ['RUST_MIN_STACK=8388608'];
 
 export class CaptureFd extends Fd {
 	ino!: bigint;
@@ -434,26 +438,29 @@ export async function instantiateRustcInstance({
 	rustcModule,
 	memory,
 	args,
+	env = DEFAULT_RUSTC_ENV,
 	fds,
 	threadSpawner
 }: {
 	rustcModule: WebAssembly.Module;
 	memory: WebAssembly.Memory;
 	args: string[];
+	env?: string[];
 	fds: Fd[];
 	threadSpawner: (startArg: number) => number;
 }) {
-	const wasiInstance = new WASI(args, [], fds, { debug: false });
+	const wasiInstance = new WASI(args, env, fds, { debug: false });
 	wasiInstance.wasiImport.random_get = createSharedSafeRandomGet(memory);
 	const instance = await WebAssembly.instantiate(rustcModule, {
 		env: {
-			memory
+			memory,
+			[RUSTC_STRING_GROW_BY_IMPORT]: () => {}
 		},
 		wasi: {
 			'thread-spawn': threadSpawner
 		},
-			wasi_snapshot_preview1: wasiInstance.wasiImport
-		});
+		wasi_snapshot_preview1: wasiInstance.wasiImport
+	});
 	wasiInstance.inst = instance as any;
 	return { instance, wasiInstance };
 }

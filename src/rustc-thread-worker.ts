@@ -7,13 +7,30 @@ import type {
 	RustcThreadWorkerRequest
 } from './worker-protocol.js';
 import { buildPreopenedDirectories, instantiateRustcInstance } from './rustc-runtime.js';
-import { markWorkerFailure } from './worker-status.js';
+import { markWorkerFailure, recordWorkerFailureContext } from './worker-status.js';
+import {
+	dispatchThreadPoolSlotAndWait,
+	reserveIdleThreadPoolSlot,
+	THREAD_STARTUP_STATE_ENTERING,
+	THREAD_STARTUP_STATE_INSTANTIATED,
+	THREAD_STARTUP_STATE_STARTING,
+	waitForThreadStartupState
+} from './thread-startup.js';
 
 const MIRRORED_BITCODE_LENGTH_INDEX = 0;
 
 postMessage({
 	type: 'thread-ready'
 } satisfies RustcThreadWorkerReadyMessage);
+
+function describeStartArgMemory(memory: WebAssembly.Memory, startArg: number) {
+	try {
+		const words = Array.from(new Uint32Array(memory.buffer, startArg, 4));
+		return `startArg=${startArg} words=${words.join(',')}`;
+	} catch (error) {
+		return `startArg=${startArg} snapshot-error=${error instanceof Error ? error.message : String(error)}`;
+	}
+}
 
 async function instantiateThreadWorkerRuntime(
 	request: RustcThreadWorkerRequest | RustcThreadPoolInitRequest
@@ -40,6 +57,17 @@ async function instantiateThreadWorkerRuntime(
 			const threadCounter = new Int32Array(request.threadCounterBuffer);
 			const nestedThreadId = Atomics.add(threadCounter, 0, 1) + 1;
 			const spawnDedicatedWorker = () => {
+				if (request.log) {
+					postMessage({
+						type: 'thread-log',
+						threadId: nestedThreadId,
+						phase: 'spawn-dedicated',
+						detail:
+							request.type === 'thread-start'
+								? `parent=${request.threadId} startArg=${startArg}`
+								: `parentSlot=${request.slotIndex} startArg=${startArg}`
+					} satisfies RustcThreadWorkerLogMessage);
+				}
 				const nestedReadyBuffer = new SharedArrayBuffer(4);
 				const nestedReadyState = new Int32Array(nestedReadyBuffer);
 				const nestedThreadWorkerUrl = resolveVersionedAssetUrl(
@@ -76,44 +104,44 @@ async function instantiateThreadWorkerRuntime(
 					startArg,
 					readyBuffer: nestedReadyBuffer
 				} satisfies RustcThreadWorkerRequest);
-				const waitDeadline = Date.now() + 30_000;
-				while (true) {
-					const currentState = Atomics.load(nestedReadyState, 0);
-					if (currentState >= 2) {
-						break;
-					}
-					if (currentState < 0) {
-						throw new Error(
-							`rustc dedicated helper thread ${nestedThreadId} failed to initialize`
-						);
-					}
-					const remaining = waitDeadline - Date.now();
-					if (remaining <= 0) {
-						throw new Error(
-							`rustc dedicated helper thread ${nestedThreadId} timed out during startup`
-						);
-					}
-					Atomics.wait(nestedReadyState, 0, currentState, Math.min(remaining, 1_000));
-				}
+				waitForThreadStartupState(
+					nestedReadyState,
+					THREAD_STARTUP_STATE_INSTANTIATED,
+					30_000,
+					`rustc dedicated helper thread ${nestedThreadId} failed to initialize`,
+					`rustc dedicated helper thread ${nestedThreadId} timed out during startup`
+				);
 				return nestedThreadId;
 			};
 			if (request.type === 'thread-pool-init') {
-				const slot = request.poolBuffers
+				const slot = reserveIdleThreadPoolSlot(
+					request.poolBuffers
 					.map((buffer, index) => ({
 						index,
 						slotState: new Int32Array(buffer)
 					}))
-					.find(
-						(entry) =>
-							entry.index !== request.slotIndex && Atomics.load(entry.slotState, 0) === 0
-					);
+					.filter((entry) => entry.index !== request.slotIndex)
+				);
 				if (!slot) {
 					return spawnDedicatedWorker();
 				}
-				Atomics.store(slot.slotState, 1, nestedThreadId);
-				Atomics.store(slot.slotState, 2, startArg);
-				Atomics.store(slot.slotState, 0, 1);
-				Atomics.notify(slot.slotState, 0);
+				if (request.log) {
+					postMessage({
+						type: 'thread-log',
+						threadId: nestedThreadId,
+						phase: 'spawn-pooled',
+						detail: `slot=${slot.index} startArg=${startArg}`
+					} satisfies RustcThreadWorkerLogMessage);
+				}
+				dispatchThreadPoolSlotAndWait(
+					slot.slotState,
+					nestedThreadId,
+					startArg,
+					THREAD_STARTUP_STATE_INSTANTIATED,
+					30_000,
+					`rustc pooled helper thread ${nestedThreadId} failed to initialize`,
+					`rustc pooled helper thread ${nestedThreadId} timed out during startup`
+				);
 				return nestedThreadId;
 			}
 			return spawnDedicatedWorker();
@@ -131,7 +159,7 @@ async function startThreadWorker(request: RustcThreadWorkerRequest) {
 		} satisfies RustcThreadWorkerLogMessage);
 	}
 	const readyState = new Int32Array(request.readyBuffer);
-	Atomics.store(readyState, 0, 1);
+	Atomics.store(readyState, 0, THREAD_STARTUP_STATE_STARTING);
 	Atomics.notify(readyState, 0);
 	const instantiated = await instantiateThreadWorkerRuntime(request);
 	if (request.log) {
@@ -141,15 +169,25 @@ async function startThreadWorker(request: RustcThreadWorkerRequest) {
 			phase: 'instance-ready'
 		} satisfies RustcThreadWorkerLogMessage);
 	}
-	Atomics.store(readyState, 0, 2);
+	Atomics.store(readyState, 0, THREAD_STARTUP_STATE_INSTANTIATED);
 	Atomics.notify(readyState, 0);
+	recordWorkerFailureContext(
+		request.sharedStatusBuffer,
+		'thread-enter',
+		request.startArg,
+		Array.from(new Uint32Array(request.memory.buffer, request.startArg, 4))
+	);
 	if (request.log) {
 		postMessage({
 			type: 'thread-log',
 			threadId: request.threadId,
 			phase: 'enter-wasi-thread-start'
+			,
+			detail: describeStartArgMemory(request.memory, request.startArg)
 		} satisfies RustcThreadWorkerLogMessage);
 	}
+	Atomics.store(readyState, 0, THREAD_STARTUP_STATE_ENTERING);
+	Atomics.notify(readyState, 0);
 	(instantiated.instance.exports as any).wasi_thread_start(request.threadId, request.startArg);
 }
 
@@ -162,7 +200,6 @@ async function startThreadPoolWorker(request: RustcThreadPoolInitRequest) {
 			phase: 'pool-init-start'
 		} satisfies RustcThreadWorkerLogMessage);
 	}
-	const instantiated = await instantiateThreadWorkerRuntime(request);
 	Atomics.store(slotState, 0, 0);
 	Atomics.notify(slotState, 0);
 	if (request.log) {
@@ -187,15 +224,25 @@ async function startThreadPoolWorker(request: RustcThreadPoolInitRequest) {
 		}
 		const threadId = Atomics.load(slotState, 1);
 		const startArg = Atomics.load(slotState, 2);
-		Atomics.store(slotState, 0, 2);
+		const instantiated = await instantiateThreadWorkerRuntime(request);
+		Atomics.store(slotState, 0, THREAD_STARTUP_STATE_INSTANTIATED);
+		Atomics.notify(slotState, 0);
+		recordWorkerFailureContext(
+			request.sharedStatusBuffer,
+			'pool-enter',
+			startArg,
+			Array.from(new Uint32Array(request.memory.buffer, startArg, 4))
+		);
 		if (request.log) {
 			postMessage({
 				type: 'thread-log',
 				threadId,
 				phase: 'pool-run',
-				detail: `slot=${request.slotIndex} startArg=${startArg}`
+				detail: `slot=${request.slotIndex} ${describeStartArgMemory(request.memory, startArg)}`
 			} satisfies RustcThreadWorkerLogMessage);
 		}
+		Atomics.store(slotState, 0, THREAD_STARTUP_STATE_ENTERING);
+		Atomics.notify(slotState, 0);
 		(instantiated.instance.exports as any).wasi_thread_start(threadId, startArg);
 		Atomics.store(slotState, 0, 0);
 		Atomics.notify(slotState, 0);
@@ -231,7 +278,7 @@ globalThis.addEventListener(
 						type: 'thread-log',
 						threadId: request.threadId,
 						phase: 'error',
-						detail
+						detail: `${detail}${error instanceof Error && error.stack ? ` stack=${error.stack.split('\n').slice(0, 6).join(' | ')}` : ''}`
 					} satisfies RustcThreadWorkerLogMessage);
 				}
 			});
@@ -255,7 +302,7 @@ globalThis.addEventListener(
 						type: 'thread-log',
 						threadId: request.slotIndex,
 						phase: 'pool-error',
-						detail
+						detail: `${detail}${error instanceof Error && error.stack ? ` stack=${error.stack.split('\n').slice(0, 6).join(' | ')}` : ''}`
 					} satisfies RustcThreadWorkerLogMessage);
 				}
 			});

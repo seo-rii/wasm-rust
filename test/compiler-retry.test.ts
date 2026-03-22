@@ -165,6 +165,62 @@ describe('compileRust retry behavior', () => {
 		expect(worker.terminated).toBe(true);
 	});
 
+	it('waits for mirrored bitcode after the compile worker settles with a helper-thread failure once the bitcode file was already truncated', async () => {
+		const bitcode = new Uint8Array([0xca, 0xfe, 0xba, 0xbe]);
+		const worker = new FakeWorker((message, currentWorker) => {
+			const state = new Int32Array(message.sharedBitcodeBuffer, 0, 4);
+			Atomics.store(state, 0, 0);
+			Atomics.store(state, 1, 0);
+			Atomics.store(state, 2, 1);
+			currentWorker.emitMessage({
+				type: 'error',
+				message: 'browser rustc helper thread failed before producing LLVM bitcode: memory access out of bounds'
+			});
+			setTimeout(() => {
+				mirrorBitcode(message.sharedBitcodeBuffer, bitcode, 2);
+			}, 50);
+		});
+
+		const result = await compileRust(
+			{
+				code: 'fn main() { println!(\"hi\"); }',
+				edition: '2024',
+				crateType: 'bin',
+				targetTriple: 'wasm32-wasip2',
+				log: true
+			},
+			{
+				loadManifest: async () =>
+					createRuntimeManifestV2({
+						compileTimeoutMs: 2_000,
+						artifactIdleMs: 200
+					}),
+				createWorker: () => worker,
+				now: () => Date.now(),
+				sleep: async () => {
+					await new Promise((resolve) => setTimeout(resolve, 10));
+				},
+				linkBitcode: async (receivedBitcode) => {
+					expect(receivedBitcode).toEqual(bitcode);
+					return {
+						wasm: new Uint8Array([0x20, 0x24]),
+						targetTriple: 'wasm32-wasip2',
+						format: 'component'
+					};
+				}
+			}
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.artifact).toEqual({
+			wasm: new Uint8Array([0x20, 0x24]),
+			targetTriple: 'wasm32-wasip2',
+			format: 'component'
+		});
+		expect(result.stdout).not.toContain('memory access out of bounds');
+		expect(worker.terminated).toBe(true);
+	});
+
 	it('retries after a transient worker bootstrap script error and succeeds on the next attempt', async () => {
 		const bitcode = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 		const firstWorker = new FakeWorker((_, worker) => {
