@@ -5,15 +5,19 @@
 It is designed to be consumed by `wasm-idle`, but it also owns its own standalone browser harness and
 validation flow. The compiler uses a real `rustc.wasm` frontend and a packaged `llvm-wasm`
 `llc`/`lld` backend to return either a runnable preview1 core wasm artifact (`wasm32-wasip1`) or a
-preview2 component artifact (`wasm32-wasip2`). An experimental `wasm32-wasip3` pipeline is also
-available when the custom Rust toolchain is rebuilt with the upstream-required `libc` patch.
+preview2-style component artifact (`wasm32-wasip2` and transitional `wasm32-wasip3`). An
+experimental `wasm32-wasip3` pipeline is also available when the custom Rust toolchain is rebuilt
+with the upstream-required `libc` patch.
 
 ## Status
 
 - Browser compile and run works in Chromium.
 - The minimal regression target `fn main() { println!("hi"); }` compiles in the browser and prints
   `hi\n`.
-- Browser compile and run is verified for both `wasm32-wasip1` and `wasm32-wasip2`.
+- Browser compile and run is verified for `wasm32-wasip1`, `wasm32-wasip2`, and transitional
+  `wasm32-wasip3` when the runtime bundle was prepared from the patched custom toolchain.
+- The richer `wasm32-wasip2` browser regression now covers component args/stdin output such as
+  `preview2_component=preview2-cli` and `factorial_plus_bonus=27`.
 - The result is returned through the `wasm-idle` browser compiler contract:
   - module exports `default` and `createRustCompiler`
   - factory returns `{ compile(request) }`
@@ -95,10 +99,19 @@ That command runs:
 
 Latest verified browser result:
 
-- `compile.success: true`
-- `compile.hasWasm: true`
-- `runtime.exitCode: 0`
-- `runtime.stdout: "hi\n"`
+- `wasm32-wasip1`
+  - `compile.success: true`
+  - `runtime.exitCode: 0`
+  - `runtime.stdout: "hi\n"`
+- `wasm32-wasip2`
+  - `compile.success: true`
+  - `runtime.exitCode: 0`
+  - `runtime.stdout` contains `preview2_component=preview2-cli`
+  - `runtime.stdout` contains `factorial_plus_bonus=27`
+- `wasm32-wasip3`
+  - `compile.success: true`
+  - `runtime.exitCode: 0`
+  - `runtime.stdout: "hi\n"`
 
 ## API
 
@@ -157,8 +170,14 @@ Important runtime notes:
 
 - `SharedArrayBuffer` and wasm threads are required.
 - The shipped browser harness serves COOP/COEP headers for that reason.
+- The packaged `rustc.wasm` host injects the required `env` function shims and
+  `RUST_MIN_STACK=8388608` so current browser helper threads start reliably enough to mirror LLVM
+  bitcode.
 - The compiler currently retries transient browser-rustc worker failures up to five attempts.
 - Retry transitions are intentionally surfaced as visible warnings.
+- Helper-thread startup is handshake-based before a pooled worker returns its thread id. This keeps
+  recovered helper-thread failures out of the normal success path when mirrored bitcode already
+  exists.
 - Internal worker assets are spawned as direct same-origin module workers, not `blob:` wrappers.
   This avoids deployment-only CSP failures that otherwise show up as a generic `worker script error`.
 - Successful compile results are still authoritative even if one or more transient browser-rustc

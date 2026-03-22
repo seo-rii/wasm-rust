@@ -30,7 +30,7 @@ Successful result shape:
   success: true,
   artifact: {
     wasm: Uint8Array,
-    targetTriple: 'wasm32-wasip1' | 'wasm32-wasip2',
+    targetTriple: 'wasm32-wasip1' | 'wasm32-wasip2' | 'wasm32-wasip3',
     format: 'core-wasm' | 'component'
   }
 }
@@ -42,6 +42,8 @@ Current supported source shape:
 - `bin` crate type
 - editions `2021` and `2024`
 - targets `wasm32-wasip1` and `wasm32-wasip2`
+- transitional `wasm32-wasip3` when the shipped runtime bundle actually contains that target in
+  `runtime-manifest.v2.json`
 
 ## Browser requirements
 
@@ -70,6 +72,11 @@ Recommended behavior:
   - use a stricter preview1 WASI host such as `@bjorn3/browser_wasi_shim`
 - for `artifact.targetTriple === 'wasm32-wasip2'`
   - execute the component through `preview2-shim` plus `jco`-transpiled bindings
+- for `artifact.targetTriple === 'wasm32-wasip3'`
+  - currently execute it through the same `preview2-shim` plus `jco` transitional component path
+  - this only works while emitted browser imports still stay on WASIp2 interfaces
+  - if upstream starts emitting real preview3 browser imports, the consumer should reject that
+    artifact until a browser-safe preview3 shim exists
 - treat successful `compile()` as authoritative even if the browser console showed transient internal
   retry warnings before success
 
@@ -119,6 +126,18 @@ In `wasm-idle`, the refresh flow is:
 ```bash
 cd /home/seorii/dev/hancomac/wasm-rust
 pnpm build
+
+cd /home/seorii/dev/hancomac/wasm-idle
+pnpm run sync:wasm-rust
+```
+
+If you need the transitional `wasm32-wasip3` target in that vendored bundle, prepare the runtime
+first:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
+pnpm run prepare:runtime:wasip3
 
 cd /home/seorii/dev/hancomac/wasm-idle
 pnpm run sync:wasm-rust

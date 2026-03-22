@@ -23,13 +23,18 @@ The current pipeline is:
    - launches the packaged `rustc.wasm`
    - creates the shared memory and preopened filesystem
    - starts the pooled rustc thread workers
+   - reserves pooled helper slots through `src/thread-startup.ts` before returning a browser
+     thread id to rustc
    - uses direct same-origin module workers instead of `blob:` wrappers so stricter deployed CSP
      pages do not fail with a generic `worker script error`
 3. `src/rustc-thread-worker.ts`
    - runs rustc wasm helper threads
    - reuses the shared pool for nested rustc thread spawns
+   - instantiates a fresh wasm helper runtime for each pooled dispatch and records the last
+     start-arg context into `src/worker-status.ts`
 4. `src/rustc-runtime.ts`
    - browser WASI host setup
+   - injects `RUST_MIN_STACK=8388608` and required `env` function shims into `rustc.wasm`
    - mirrored bitcode inode preservation across rename/reopen paths
 5. `src/browser-linker.ts`
    - links mirrored `.no-opt.bc` through packaged `llvm-wasm` `llc` + `lld`
@@ -58,6 +63,10 @@ These are required for the browser path to work.
   - Current packaged values:
     - initial pages: `8192`
     - maximum pages: `65536`
+- The packaged `rustc.wasm` host must provide both:
+  - callable `env` shims for current Rust/C++ imports such as
+    `_ZNSt3__212basic_string...__grow_by...`
+  - `RUST_MIN_STACK=8388608` so browser helper threads do not fail before mirroring bitcode
 - The packaged runtime manifest must allow enough wall-clock time for real browser rustc startup.
   - Current packaged compile timeout: `120000ms`
 - Manifest compatibility is intentionally split:
@@ -112,11 +121,11 @@ That is why the checked-in browser backend is:
 
 ## Browser-specific instability
 
-The real browser-hosted `rustc.wasm` still has a transient failure mode:
+The real browser-hosted `rustc.wasm` still has a narrow transient failure mode:
 
-- LLVM worker threads may throw `memory access out of bounds`
+- helper or LLVM worker threads may still throw `memory access out of bounds`
 - this can happen before or during optimization/summary passes
-- the failure is intermittent
+- the failure is intermittent, but the shipped path now treats it as a recoverable internal fault
 
 Observed recovery behavior:
 
@@ -126,7 +135,17 @@ Observed recovery behavior:
 
 Shipped mitigation:
 
+- `src/thread-startup.ts` now waits for helper workers to reach a minimum startup state before the
+  browser thread id is returned to rustc
+- `src/rustc-thread-worker.ts` instantiates a fresh helper runtime per pooled dispatch instead of
+  reusing a stale wasm instance across multiple starts
+- `src/rustc-runtime.ts` sets `RUST_MIN_STACK=8388608`, which materially improved helper-thread
+  startup stability in Chromium
+- `src/worker-status.ts` records the last helper-thread start-arg snapshot so recovered OOBs still
+  leave actionable context in diagnostics
 - `src/compiler.ts` retries transient browser failures up to `5` attempts
+- `src/compiler.ts` now also gives mirrored-bitcode recovery a short grace window before turning a
+  helper-thread failure into a user-visible compile failure
 - retries are currently triggered for:
   - `memory access out of bounds`
   - `browser rustc timed out before producing LLVM bitcode`
@@ -222,15 +241,18 @@ pnpm run validate:standalone-browser
 Latest observed outcome:
 
 - `build` passed
-- `vitest` passed with `16` files and `43` tests
-- Playwright Chromium harness probe passed
-- Vitest real-browser harness passed
-- final browser result:
-  - `compile.success: true`
-  - `compile.hasWasm: true`
-  - `compile.hasWat: false`
-  - `runtime.exitCode: 0`
-  - `runtime.stdout: "hi\n"`
+- targeted Vitest coverage passed for:
+  - helper-thread startup/retry/runtime shims
+  - richer Chromium browser harness regression
+  - `wasip3` build-pipeline normalization
+- Playwright Chromium harness probe passed for:
+  - `wasm32-wasip1` minimal sample
+  - richer `wasm32-wasip2` sample with preview2 args/stdin
+  - transitional `wasm32-wasip3` minimal sample
+- final browser results included:
+  - `wasm32-wasip2` stdout containing `preview2_component=preview2-cli`
+  - `wasm32-wasip2` stdout containing `factorial_plus_bonus=27`
+  - `wasm32-wasip3` stdout `hi\n`
 
 Important observation from the same successful run:
 
