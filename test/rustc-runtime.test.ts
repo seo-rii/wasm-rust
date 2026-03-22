@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 import { File, OpenFile } from '@bjorn3/browser_wasi_shim';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -9,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { instantiateRustcInstance } from '../src/rustc-runtime.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const rustcWasmPath = path.join(projectRoot, 'dist', 'runtime', 'rustc', 'rustc.wasm');
+const rustcWasmPath = path.join(projectRoot, 'dist', 'runtime', 'rustc', 'rustc.wasm.gz');
 const rustcWasmEnvShims =
 	process.env.WASM_RUST_SKIP_DIST_TESTS === '1'
 		? describe.skip
@@ -23,7 +24,7 @@ rustcWasmEnvShims('rustc wasm env shims', () => {
 	});
 
 	it('provides callable env shims for rustc.wasm function imports', async () => {
-		const rustcBytes = await readFile(rustcWasmPath);
+		const rustcBytes = gunzipSync(await readFile(rustcWasmPath));
 		const rustcModule = new WebAssembly.Module(rustcBytes);
 		const rustcEnvFunctionImports = WebAssembly.Module.imports(rustcModule).filter(
 			(entry) => entry.module === 'env' && entry.kind === 'function'

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 import { writeRuntimePack } from './runtime-pack.mjs';
 
@@ -836,6 +837,11 @@ async function main() {
 	const rustcTargetPath = path.join(runtimeRoot, 'rustc', 'rustc.wasm');
 	await copyFileIfNeeded(path.join(wasmRustcRoot, 'bin', 'rustc.wasm'), rustcTargetPath);
 	await patchRustcMemoryMaximum(rustcTargetPath);
+	const rustcGzipTargetPath = path.join(runtimeRoot, 'rustc', 'rustc.wasm.gz');
+	const rustcBytes = await fs.readFile(rustcTargetPath);
+	const compressedRustcBytes = gzipSync(rustcBytes, { level: 9 });
+	await fs.writeFile(rustcGzipTargetPath, compressedRustcBytes);
+	await fs.rm(rustcTargetPath, { force: true });
 
 	const llvmFiles = ['llc.js', 'llc.wasm', 'lld.js', 'lld.wasm', 'lld.data'];
 	for (const entry of llvmFiles) {
@@ -845,7 +851,7 @@ async function main() {
 	const sysrootSourceRoot = path.join(wasmRustcRoot, 'lib', 'rustlib');
 
 	const compiler = {
-		rustcWasm: 'rustc/rustc.wasm',
+		rustcWasm: 'rustc/rustc.wasm.gz',
 		workerBitcodeFile: bitcodeFileName,
 		workerSharedOutputBytes: 32 * 1024 * 1024,
 		compileTimeoutMs: 120_000,

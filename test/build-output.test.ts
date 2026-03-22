@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
 
@@ -201,6 +202,7 @@ builtBrowserBundle('built browser bundle', () => {
 		expect(v3Manifest.manifestVersion).toBe(3);
 		expect(v3Manifest.defaultTargetTriple).toBe('wasm32-wasip1');
 		expect(v3Manifest.compiler.compileTimeoutMs).toBe(120_000);
+		expect(v3Manifest.compiler.rustcWasm).toBe('rustc/rustc.wasm.gz');
 		expect(v3Manifest.targets['wasm32-wasip1']?.artifactFormat).toBe('core-wasm');
 		if (await hasCompatibleWasiSdk()) {
 			expect(v3Manifest.targets['wasm32-wasip2']?.artifactFormat).toBe('component');
@@ -254,6 +256,19 @@ builtBrowserBundle('built browser bundle', () => {
 		expect(runtimeFiles.some((filePath) => filePath.endsWith('.old'))).toBe(false);
 		expect(runtimeFiles.some((filePath) => filePath.includes('/sysroot/lib/rustlib/'))).toBe(false);
 		expect(runtimeFiles.some((filePath) => filePath.includes('/runtime/link/'))).toBe(false);
+		await expect(fs.access(path.join(runtimeRoot, 'rustc', 'rustc.wasm.gz'))).resolves.toBeUndefined();
+		await expect(fs.access(path.join(runtimeRoot, 'rustc', 'rustc.wasm'))).rejects.toThrow();
+	});
+
+	it('ships rustc as a gzip precompressed asset under the GitHub file-size limit', async () => {
+		const runtimeRoot = path.join(distRoot, 'runtime');
+		const compressedRustcPath = path.join(runtimeRoot, 'rustc', 'rustc.wasm.gz');
+		const compressedRustcBytes = await fs.readFile(compressedRustcPath);
+		const decompressedRustcBytes = gunzipSync(compressedRustcBytes);
+
+		expect(compressedRustcBytes.byteLength).toBeLessThan(100_000_000);
+		expect(decompressedRustcBytes.byteLength).toBeGreaterThan(compressedRustcBytes.byteLength);
+		expect(Array.from(decompressedRustcBytes.slice(0, 4))).toEqual([0x00, 0x61, 0x73, 0x6d]);
 	});
 
 	it('stays within runtime byte and request budgets for each packaged target', async () => {

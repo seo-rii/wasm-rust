@@ -51,7 +51,25 @@ export async function fetchRuntimeAssetBytes(assetUrl: URL, assetLabel: string) 
 			`failed to fetch ${assetLabel} from ${assetUrl.toString()} (status ${response.status}). This usually means the browser loaded a stale wasm-rust bundle or a nested runtime asset is missing.`
 		);
 	}
-	return new Uint8Array(await response.arrayBuffer());
+	const assetBytes = new Uint8Array(await response.arrayBuffer());
+	if (!assetUrl.pathname.endsWith('.gz')) {
+		return assetBytes;
+	}
+	if (typeof DecompressionStream !== 'function') {
+		throw new Error(
+			`failed to decompress ${assetLabel} from ${assetUrl.toString()}: this browser does not support DecompressionStream('gzip').`
+		);
+	}
+	try {
+		const decompressedResponse = new Response(
+			new Blob([assetBytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+		);
+		return new Uint8Array(await decompressedResponse.arrayBuffer());
+	} catch (error) {
+		throw new Error(
+			`failed to decompress ${assetLabel} from ${assetUrl.toString()}: ${error instanceof Error ? error.message : String(error)}`
+		);
+	}
 }
 
 function buildRustcArguments(

@@ -5,7 +5,7 @@ export function createRuntimeManifest(overrides: Record<string, unknown> = {}) {
 		version: 'test-runtime-v1',
 		hostTriple: 'x86_64-unknown-linux-gnu',
 		targetTriple: 'wasm32-wasip1',
-		rustcWasm: 'rustc/rustc.wasm',
+		rustcWasm: 'rustc/rustc.wasm.gz',
 		workerBitcodeFile: 'main.main.1ca70c240d7de168-cgu.0.rcgu.no-opt.bc',
 		workerSharedOutputBytes: 1024,
 		compileTimeoutMs: 2_000,
@@ -46,7 +46,7 @@ export function createRuntimeManifestV2(overrides: Record<string, unknown> = {})
 		hostTriple: 'x86_64-unknown-linux-gnu',
 		defaultTargetTriple: 'wasm32-wasip1',
 		compiler: {
-			rustcWasm: 'rustc/rustc.wasm',
+			rustcWasm: 'rustc/rustc.wasm.gz',
 			workerBitcodeFile: 'main.main.1ca70c240d7de168-cgu.0.rcgu.no-opt.bc',
 			workerSharedOutputBytes: 1024,
 			compileTimeoutMs: 2_000,
@@ -159,7 +159,7 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 		hostTriple: 'x86_64-unknown-linux-gnu',
 		defaultTargetTriple: 'wasm32-wasip1',
 		compiler: {
-			rustcWasm: 'rustc/rustc.wasm',
+			rustcWasm: 'rustc/rustc.wasm.gz',
 			workerBitcodeFile: 'main.main.1ca70c240d7de168-cgu.0.rcgu.no-opt.bc',
 			workerSharedOutputBytes: 1024,
 			compileTimeoutMs: 2_000,

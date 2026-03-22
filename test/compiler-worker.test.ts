@@ -1,3 +1,5 @@
+import { gzipSync } from 'node:zlib';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchRuntimeAssetBytes, validateRuntimeAssetBytes } from '../src/compiler-worker.js';
@@ -18,7 +20,7 @@ describe('compiler-worker runtime asset validation', () => {
 
 	it('ignores non-archive runtime assets', () => {
 		expect(() =>
-			validateRuntimeAssetBytes('rustc/rustc.wasm', new Uint8Array([0x00, 0x61, 0x73, 0x6d]))
+			validateRuntimeAssetBytes('rustc/rustc.wasm.gz', new Uint8Array([0x00, 0x61, 0x73, 0x6d]))
 		).not.toThrow();
 	});
 
@@ -47,5 +49,24 @@ describe('compiler-worker runtime asset validation', () => {
 		).rejects.toThrowError(
 			/failed to fetch wasm-rust sysroot asset .*libcore\.rlib.*stale wasm-rust bundle|blocked a nested runtime asset request/i
 		);
+	});
+
+	it('gunzips precompressed rustc runtime assets before compiling them', async () => {
+		const rustcBytes = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01]);
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				new Response(gzipSync(rustcBytes), {
+					status: 200
+				})
+			)
+		);
+
+		await expect(
+			fetchRuntimeAssetBytes(
+				new URL('https://example.test/wasm-rust/runtime/rustc/rustc.wasm.gz'),
+				'rustc.wasm'
+			)
+		).resolves.toEqual(rustcBytes);
 	});
 });
