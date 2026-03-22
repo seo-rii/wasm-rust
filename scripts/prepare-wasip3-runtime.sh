@@ -17,7 +17,7 @@ Optional environment:
   WASM_RUST_RUSTC_ROOT                   Custom Rust install root containing rustc.wasm and wasm32-wasip3 sysroot
   WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT Matching stage2 toolchain used to probe native link args
   WASM_RUST_MATCHING_NATIVE_SYSROOT_ROOT Native sysroot root used with the matching rustc (defaults to WASM_RUST_RUSTC_ROOT)
-  WASM_RUST_RUNTIME_TARGET_TRIPLES       Defaults to wasm32-wasip1,wasm32-wasip3
+  WASM_RUST_RUNTIME_TARGET_TRIPLES       Defaults to wasm32-wasip1,wasm32-wasip2,wasm32-wasip3
   WASM_RUST_DEFAULT_TARGET_TRIPLE        Defaults to wasm32-wasip1
 
 Important:
@@ -42,7 +42,7 @@ rustc_root="${WASM_RUST_RUSTC_ROOT:-/home/seorii/.cache/wasm-rust-real-rustc-202
 matching_native_toolchain_root="${WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT:-/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2}"
 matching_native_sysroot_root="${WASM_RUST_MATCHING_NATIVE_SYSROOT_ROOT:-$rustc_root}"
 wasi_sdk_root="${WASM_RUST_WASI_SDK_ROOT:-${WASI_SDK_PATH:-}}"
-runtime_target_triples="${WASM_RUST_RUNTIME_TARGET_TRIPLES:-wasm32-wasip1,wasm32-wasip3}"
+runtime_target_triples="${WASM_RUST_RUNTIME_TARGET_TRIPLES:-wasm32-wasip1,wasm32-wasip2,wasm32-wasip3}"
 default_target_triple="${WASM_RUST_DEFAULT_TARGET_TRIPLE:-wasm32-wasip1}"
 
 if [[ -z "$wasi_sdk_root" ]]; then
@@ -57,7 +57,7 @@ fi
 
 if [[ ! -d "$rustc_root/lib/rustlib/wasm32-wasip3/lib" ]]; then
   printf 'missing wasm32-wasip3 sysroot at %s\n' "$rustc_root/lib/rustlib/wasm32-wasip3/lib" >&2
-  printf 'build/install a custom toolchain with wasm32-wasip3 first, and ensure the documented libc [patch] was applied before rerunning this script\n' >&2
+  printf 'build/install a custom toolchain with wasm32-wasip3 first (for example: pnpm run toolchain:build:custom:wasip3), and ensure the documented libc [patch] was applied before rerunning this script\n' >&2
   exit 1
 fi
 
