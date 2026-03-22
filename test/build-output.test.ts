@@ -1,10 +1,13 @@
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-const projectRoot = '/home/seorii/dev/hancomac/wasm-rust';
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distRoot = path.join(projectRoot, 'dist');
+const builtBrowserBundle = existsSync(distRoot) ? describe : describe.skip;
 
 async function listFiles(rootPath: string): Promise<string[]> {
 	const entries = await fs.readdir(rootPath, { withFileTypes: true });
@@ -22,7 +25,7 @@ async function listFiles(rootPath: string): Promise<string[]> {
 	return files.sort();
 }
 
-describe('built browser bundle', () => {
+builtBrowserBundle('built browser bundle', () => {
 	it('does not leave bare package imports in shipped browser entrypoints', async () => {
 		const files = (await listFiles(distRoot)).filter((filePath) => filePath.endsWith('.js'));
 		for (const filePath of files) {

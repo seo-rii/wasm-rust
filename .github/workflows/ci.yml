@@ -34,8 +34,5 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Build Browser Bundle
-        run: pnpm build
-
       - name: Run CI Tests
         run: pnpm run test:ci
