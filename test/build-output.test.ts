@@ -6,6 +6,12 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import {
+	distRoot as prepareRuntimeDistRoot,
+	projectRoot as prepareRuntimeProjectRoot,
+	runtimeRoot as prepareRuntimeRuntimeRoot
+} from '../scripts/prepare-runtime.mjs';
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distRoot = path.join(projectRoot, 'dist');
 const builtBrowserBundle = existsSync(distRoot) ? describe : describe.skip;
@@ -92,6 +98,12 @@ async function hasCompatibleWasiSdk() {
 }
 
 builtBrowserBundle('built browser bundle', () => {
+	it('derives runtime build paths from the current checkout instead of a machine-local absolute path', () => {
+		expect(prepareRuntimeProjectRoot).toBe(projectRoot);
+		expect(prepareRuntimeDistRoot).toBe(distRoot);
+		expect(prepareRuntimeRuntimeRoot).toBe(path.join(distRoot, 'runtime'));
+	});
+
 	it('does not leave bare package imports in shipped browser entrypoints', async () => {
 		const files = (await listFiles(distRoot)).filter((filePath) => filePath.endsWith('.js'));
 		for (const filePath of files) {

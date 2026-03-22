@@ -2,10 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { writeRuntimePack } from './runtime-pack.mjs';
 
-const projectRoot = '/home/seorii/dev/hancomac/wasm-rust';
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distRoot = path.join(projectRoot, 'dist');
 const runtimeRoot = path.join(distRoot, 'runtime');
 const vendorRoot = path.join(distRoot, 'vendor');
@@ -58,6 +59,9 @@ const rustcMemoryInitialPages = Number(
 const rustcMemoryMaximumPages = Number(process.env.WASM_RUST_RUSTC_MEMORY_MAXIMUM_PAGES || '65536');
 const runtimeVersion =
 	process.env.WASM_RUST_RUNTIME_VERSION || 'rust-1.79.0-dev-browser-split-v3';
+const isDirectExecution = process.argv[1]
+	? import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+	: false;
 
 if (!configuredTargetTriples.includes(defaultTargetTriple)) {
 	throw new Error(
@@ -961,4 +965,8 @@ async function main() {
 	);
 }
 
-await main();
+if (isDirectExecution) {
+	await main();
+}
+
+export { distRoot, projectRoot, runtimeRoot };
