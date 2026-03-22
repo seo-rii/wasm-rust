@@ -13,7 +13,9 @@ describe('wasm-rust runtime manifest', () => {
 		const manifest = normalizeRuntimeManifest(parseRuntimeManifest(createRuntimeManifest()));
 
 		expect(manifest.defaultTargetTriple).toBe('wasm32-wasip1');
-		expect(manifest.compiler.workerBitcodeFile.endsWith('.no-opt.bc')).toBe(true);
+		expect(manifest.compiler.workerBitcodeFile).toBe(
+			'main.main.1ca70c240d7de168-cgu.0.rcgu.no-opt.bc'
+		);
 		expect(manifest.targets['wasm32-wasip1']?.compile.link.args).toContain('/work/main.wasm');
 	});
 

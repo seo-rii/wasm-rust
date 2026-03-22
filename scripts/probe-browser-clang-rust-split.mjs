@@ -106,9 +106,9 @@ async function prepareRustArtifacts(workDir) {
 	);
 
 	const entries = await fs.readdir(workDir);
-	const noOptBitcodeName = entries.find((entry) => entry.endsWith('.no-opt.bc'));
+	const noOptBitcodeName = entries.find((entry) => entry.endsWith('.bc'));
 	if (!noOptBitcodeName) {
-		throw new Error(`Failed to find .no-opt.bc in ${workDir}`);
+		throw new Error(`Failed to find .bc in ${workDir}`);
 	}
 	const tempObjectNames = entries.filter(
 		(entry) => entry.endsWith('.rcgu.o') && !entry.includes('-cgu.0.')

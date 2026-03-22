@@ -87,4 +87,63 @@ describe('browser harness probe', () => {
 		},
 		780_000
 	);
+
+	it(
+		'compiles and runs the richer wasm-idle wasip2 sample in Chromium',
+		async () => {
+			if (process.env.WASM_RUST_RUN_REAL_BROWSER_HARNESS !== '1') {
+				return;
+			}
+
+			const sampleProgram = `
+#[cfg(not(target_env = "p2"))]
+compile_error!("This example requires wasm32-wasip2.");
+
+use std::env;
+use std::io;
+
+static BONUS: i32 = 3;
+
+fn factorial(n: i32) -> i32 {
+    if n <= 1 { 1 } else { n * factorial(n - 1) }
+}
+
+fn main() {
+    let preview2_label = env::args().nth(1).unwrap_or_else(|| "preview2-cli".to_string());
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    let n = input.trim().parse::<i32>().unwrap_or(4);
+    println!("preview2_component={}", preview2_label);
+    println!("factorial_plus_bonus={}", factorial(n) + BONUS);
+}
+`.trim();
+
+			const { stdout, stderr } = await runNode(['./scripts/probe-browser-harness.mjs'], {
+				WASM_RUST_SAMPLE_PROGRAM: sampleProgram,
+				WASM_RUST_BROWSER_HARNESS_TARGET_TRIPLES: 'wasm32-wasip2'
+			});
+			const result = JSON.parse((stdout.trim() || stderr.trim()) as string) as {
+				success: boolean;
+				targets: Array<{
+					targetTriple: string;
+					ok: boolean;
+					result: {
+						compile: { success: boolean; format: string | null };
+						runtime: { stdout: string; exitCode: number | null } | null;
+					};
+				}>;
+			};
+
+			expect(result.success).toBe(true);
+			expect(result.targets).toHaveLength(1);
+			expect(result.targets[0]?.targetTriple).toBe('wasm32-wasip2');
+			expect(result.targets[0]?.ok).toBe(true);
+			expect(result.targets[0]?.result.compile.success).toBe(true);
+			expect(result.targets[0]?.result.compile.format).toBe('component');
+			expect(result.targets[0]?.result.runtime?.stdout).toContain('preview2_component=');
+			expect(result.targets[0]?.result.runtime?.stdout).toContain('factorial_plus_bonus=');
+			expect(result.targets[0]?.result.runtime?.exitCode).toBe(0);
+		},
+		780_000
+	);
 });
