@@ -8,7 +8,8 @@ compiler to a real browser-hosted `rustc.wasm` pipeline.
 `wasm-rust` now uses two explicit browser areas:
 
 - compile support
-  - target-aware browser compilation for `wasm32-wasip1` and `wasm32-wasip2`
+  - target-aware browser compilation for `wasm32-wasip1`, `wasm32-wasip2`, and transitional
+    `wasm32-wasip3`
 - in-browser execution
   - target-aware runtime execution for preview1 core wasm and preview2 components
 
@@ -35,6 +36,7 @@ The current pipeline is:
    - returns either a preview1 core wasm artifact or a preview2 component artifact
 6. `src/browser-component-tools.ts`
    - componentizes `wasm32-wasip2` core wasm into a browser-runnable component
+   - accepts `wasm32-wasip3` only while emitted browser imports still stay on WASIp2 interfaces
    - transpiles preview2 components with vendored `jco`
 7. `src/browser-execution.ts`
    - executes preview1 artifacts through `@bjorn3/browser_wasi_shim`
@@ -71,6 +73,22 @@ These are required for the browser path to work.
 - Preview2 packaging requires an external toolchain prerequisite.
   - `wasm32-wasip2` packaging expects `WASM_RUST_WASI_SDK_ROOT` to point at `wasi-sdk >= 22`
   - `bin/wasm-component-ld` must be present there
+- Preview3 packaging currently requires an extra Rust build patch.
+  - as documented by rustc on 2025-10-01, `wasm32-wasip3` does not build upstream without a `libc`
+    patch yet
+  - `scripts/prepare-wasip3-libc-overlay.sh` materializes a cargo-home overlay with
+    `[patch.crates-io] libc = { path = ... }`
+  - `scripts/prepare-wasip3-rust-source.sh` clones or updates a Rust checkout that already contains
+    `compiler/rustc_target/src/spec/targets/wasm32_wasip3.rs`
+  - `scripts/build-custom-rustc-toolchain.sh` automatically uses that overlay when
+    `WASM_RUST_INSTALL_TARGETS` includes `wasm32-wasip3`
+  - the same build script also writes an effective `x.py` config with the requested target list and
+    auto-appends `target.'wasm32-wasip3'` from `WASM_RUST_WASI_SDK_ROOT` when the base config is
+    older and lacks that section
+  - it also prepends `WASM_RUST_WASI_SDK_ROOT/bin` to `PATH`, because Rust bootstrap sanity checks
+    do not rely only on the absolute linker path in the generated config
+  - if the fetched Rust checkout is still too old and lacks the target file, the build now fails
+    immediately instead of starting a long `x.py` run
 
 ## Why the split backend exists
 
@@ -89,6 +107,8 @@ That is why the checked-in browser backend is:
 - packaged `llvm-wasm` `llc`
 - packaged `llvm-wasm` `lld`
 - plus a separate preview2 componentization step for `wasm32-wasip2`
+- plus the same preview2-style transitional component path for `wasm32-wasip3` until browser-safe
+  preview3 shims exist
 
 ## Browser-specific instability
 
@@ -152,10 +172,23 @@ New runtime/build helpers:
   - packages `rustc.wasm`, target sysroots, link assets, v1 manifest, and v2 manifest
 - `pnpm run toolchain:build:custom`
   - env-driven wrapper for rebuilding the custom browser `rustc.wasm` toolchain
+- `pnpm run toolchain:prepare:wasip3-libc`
+  - materializes a cargo-home overlay that patches Rust's build to a newer `libc` crate
+- `pnpm run toolchain:prepare:wasip3-source`
+  - clones or updates a Rust checkout from `WASM_RUST_RUST_SOURCE_REMOTE` / `..._REF`
+- `pnpm run toolchain:build:custom:wasip3`
+  - rebuilds the custom toolchain with `wasm32-wasip3` in `WASM_RUST_INSTALL_TARGETS`
+  - `pnpm run toolchain:build:custom:wasip3 -- --foreground` keeps the build in the current shell
+- `pnpm run toolchain:bootstrap:wasip3`
+  - prepares the Rust checkout and then starts the patched custom toolchain build
 - `pnpm run probe:native-link`
   - captures native link recipes for the configured targets
 - `pnpm run probe:native-link:wasip1`
 - `pnpm run probe:native-link:wasip2`
+- `pnpm run probe:native-link:wasip3`
+- `pnpm run prepare:runtime:wasip3`
+  - packages a `wasm32-wasip1` + `wasm32-wasip2` + `wasm32-wasip3` runtime bundle by default and
+    refuses to continue if the patched sysroot is missing
 
 Important env vars:
 
@@ -167,6 +200,15 @@ Important env vars:
   - defaults to permissive mode; missing non-default targets are skipped with a warning
 - `WASM_RUST_WASI_SDK_ROOT`
   - required for preview2 packaging
+- `WASM_RUST_WASIP3_LIBC_VERSION`
+  - selects the `libc` crate version copied into the `wasip3` cargo overlay; default is `0.2.183`
+- `WASM_RUST_WASIP3_LIBC_SOURCE`
+  - optional explicit source directory for that `libc` crate
+- `WASM_RUST_RUST_SOURCE_REMOTE`
+  - override for the Rust checkout remote used by `toolchain:prepare:wasip3-source`
+- `WASM_RUST_RUST_SOURCE_REF`
+  - override for the Rust checkout ref used by `toolchain:prepare:wasip3-source`
+  - defaults to `main` for `rust-lang/rust`
 
 ## Latest standalone validation evidence
 

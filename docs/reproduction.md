@@ -126,6 +126,39 @@ This runs:
 - `tsc -p tsconfig.json`
 - `node scripts/prepare-runtime.mjs`
 
+Rebuild a patched custom toolchain and ship a runtime bundle that also contains
+`wasm32-wasip3`:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run toolchain:prepare:wasip3-source
+pnpm run toolchain:prepare:wasip3-libc
+WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
+pnpm run toolchain:build:custom:wasip3 -- --foreground
+WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
+pnpm run prepare:runtime:wasip3
+```
+
+Important expectations for that path:
+
+- the Rust checkout must already contain `compiler/rustc_target/src/spec/targets/wasm32_wasip3.rs`
+- the build script writes an effective `x.py` config under the custom toolchain root so the build
+  target list actually includes `wasm32-wasip3`
+- if the base config lacks `target.'wasm32-wasip3'`, the build script appends one from
+  `WASM_RUST_WASI_SDK_ROOT`
+- `prepare:runtime:wasip3` packages `wasm32-wasip1`, `wasm32-wasip2`, and `wasm32-wasip3` by
+  default so adding preview3 does not drop preview2 from the browser bundle
+
+Repo-owned bootstrap shortcut:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
+pnpm run toolchain:bootstrap:wasip3 -- --foreground
+```
+
+The source-preparation step defaults to `https://github.com/rust-lang/rust.git` at ref `main`.
+
 ## GitHub release asset upload
 
 Upload existing files to an existing GitHub release:

@@ -5,7 +5,8 @@
 It is designed to be consumed by `wasm-idle`, but it also owns its own standalone browser harness and
 validation flow. The compiler uses a real `rustc.wasm` frontend and a packaged `llvm-wasm`
 `llc`/`lld` backend to return either a runnable preview1 core wasm artifact (`wasm32-wasip1`) or a
-preview2 component artifact (`wasm32-wasip2`).
+preview2 component artifact (`wasm32-wasip2`). An experimental `wasm32-wasip3` pipeline is also
+available when the custom Rust toolchain is rebuilt with the upstream-required `libc` patch.
 
 ## Status
 
@@ -24,6 +25,8 @@ Current scope:
 - single-file `bin`
 - editions `2021` and `2024`
 - targets `wasm32-wasip1` and `wasm32-wasip2`
+- experimental `wasm32-wasip3` when the shipped runtime bundle was prepared from a patched custom
+  toolchain
 - no Cargo dependency resolution
 - cross-origin-isolated browser environment required
 
@@ -42,6 +45,37 @@ Package the dual-target runtime bundle, including `wasm32-wasip2`:
 cd /home/seorii/dev/hancomac/wasm-rust
 WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
 pnpm run prepare:runtime:wasip2
+```
+
+Prepare the patched toolchain inputs needed for `wasm32-wasip3`:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+pnpm run toolchain:prepare:wasip3-source
+pnpm run toolchain:prepare:wasip3-libc
+WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
+pnpm run toolchain:build:custom:wasip3 -- --foreground
+WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
+pnpm run prepare:runtime:wasip3
+```
+
+The `wasm32-wasip3` flow is still conditional on the upstream Rust limitation documented on
+2025-10-01: the Rust checkout used for the custom toolchain must already contain `wasm32-wasip3`
+target support, and the build must be forced through a newer `libc` crate via the generated cargo
+overlay. When `wasm32-wasip3` is requested, the build script also generates an effective
+`x.py` config that updates `[build].target` and appends a `target.'wasm32-wasip3'` section from
+`WASM_RUST_WASI_SDK_ROOT` if the base config does not already contain one. The same script also
+prepends `WASM_RUST_WASI_SDK_ROOT/bin` to `PATH` so Rust bootstrap sanity checks can resolve
+`wasm-component-ld`.
+
+For the shortest repo-owned path, use:
+
+```bash
+cd /home/seorii/dev/hancomac/wasm-rust
+WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
+pnpm run toolchain:bootstrap:wasip3 -- --foreground
+WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
+pnpm run prepare:runtime:wasip3
 ```
 
 Run the full standalone validation sequence:
@@ -78,7 +112,7 @@ const result = await compiler.compile({
 	code: 'fn main() { println!("hi"); }',
 	edition: '2021',
 	crateType: 'bin',
-	targetTriple: 'wasm32-wasip2'
+	targetTriple: 'wasm32-wasip3'
 });
 ```
 
@@ -98,7 +132,7 @@ Result shape:
   artifact?: {
     wasm?: Uint8Array | ArrayBuffer;
     wat?: string;
-    targetTriple: 'wasm32-wasip1' | 'wasm32-wasip2';
+    targetTriple: 'wasm32-wasip1' | 'wasm32-wasip2' | 'wasm32-wasip3';
     format: 'core-wasm' | 'component';
   };
 }
@@ -111,6 +145,13 @@ Result shape:
 3. `llvm-wasm` `llc` and `lld` lower and link that bitcode in the browser.
 4. The final artifact is returned to the caller as either preview1 core wasm or a preview2
    component, depending on `targetTriple`.
+
+For `wasm32-wasip3`, the current browser runtime is transitional:
+
+- packaging and compile support are wired through the patched custom toolchain flow above
+- emitted artifacts are still expected to use WASIp2-style browser imports for now
+- if upstream starts emitting real preview3 browser imports, the runtime will reject them until a
+  browser-safe preview3 shim exists
 
 Important runtime notes:
 
@@ -159,6 +200,20 @@ pnpm run probe:browser-harness
   - low-level browser split-pipeline probe
 - `pnpm run probe:llvm-wasm-rust-split`
   - backend-only `llvm-wasm` link probe
+- `pnpm run toolchain:prepare:wasip3-libc`
+  - materializes a cargo-home overlay that patches Rust's build to use a newer `libc` crate for
+    `wasm32-wasip3`
+- `pnpm run toolchain:prepare:wasip3-source`
+  - clones or updates a Rust source checkout that already contains `wasm32-wasip3` target support
+- `pnpm run toolchain:build:custom:wasip3`
+  - rebuilds the custom browser toolchain with `wasm32-wasip3` enabled through that cargo overlay
+  - accepts `pnpm run toolchain:build:custom:wasip3 -- --foreground` when you want to block on the
+    current shell instead of spawning a background build
+- `pnpm run toolchain:bootstrap:wasip3`
+  - runs the source-checkout preparation step and then starts the patched custom toolchain build
+- `pnpm run prepare:runtime:wasip3`
+  - packages a runtime bundle that includes `wasm32-wasip1`, `wasm32-wasip2`, and
+    `wasm32-wasip3` by default, failing fast when the patched sysroot is missing
 
 ## GitHub release upload
 
