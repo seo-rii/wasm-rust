@@ -121,6 +121,9 @@ async function listFiles(rootPath) {
 	const entries = await fs.readdir(rootPath, { withFileTypes: true });
 	const results = [];
 	for (const entry of entries) {
+		if (entry.name.endsWith('.old')) {
+			continue;
+		}
 		const fullPath = path.join(rootPath, entry.name);
 		if (entry.isDirectory()) {
 			results.push(...(await listFiles(fullPath)));
@@ -778,14 +781,6 @@ async function main() {
 
 	const sysrootSourceRoot = path.join(wasmRustcRoot, 'lib', 'rustlib');
 	const sysrootTargetRoot = path.join(runtimeRoot, 'sysroot', 'lib', 'rustlib');
-	const hostLibSource = path.join(sysrootSourceRoot, hostTriple, 'lib');
-	if (!(await pathExists(hostLibSource))) {
-		throw new Error(`missing host sysroot libraries at ${hostLibSource}`);
-	}
-	const copiedHostFiles = await copyTree(
-		hostLibSource,
-		path.join(sysrootTargetRoot, hostTriple, 'lib')
-	);
 
 	const compiler = {
 		rustcWasm: 'rustc/rustc.wasm',

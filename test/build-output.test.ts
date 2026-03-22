@@ -123,6 +123,11 @@ describe('built browser bundle', () => {
 				(entry) => !entry.asset.includes('x86_64-unknown-linux-gnu') && !entry.runtimePath.includes('x86_64-unknown-linux-gnu')
 			)
 		).toBe(true);
+		expect(
+			legacyManifest.sysrootFiles.every(
+				(entry) => !entry.asset.endsWith('.old') && !entry.runtimePath.endsWith('.old')
+			)
+		).toBe(true);
 		expect(v2Manifest.manifestVersion).toBe(2);
 		expect(v2Manifest.defaultTargetTriple).toBe('wasm32-wasip1');
 		expect(v2Manifest.compiler.compileTimeoutMs).toBe(120_000);
@@ -143,7 +148,9 @@ describe('built browser bundle', () => {
 				targetConfig.sysrootFiles.every(
 					(entry) =>
 						entry.asset.includes(`/rustlib/${targetTriple}/`) &&
-						entry.runtimePath.includes(`/rustlib/${targetTriple}/`)
+						entry.runtimePath.includes(`/rustlib/${targetTriple}/`) &&
+						!entry.asset.endsWith('.old') &&
+						!entry.runtimePath.endsWith('.old')
 				)
 			).toBe(true);
 		}
@@ -152,5 +159,8 @@ describe('built browser bundle', () => {
 				await expect(fs.access(path.join(distRoot, 'runtime', entry.asset))).resolves.toBeUndefined();
 			}
 		}
+		const runtimeFiles = await listFiles(path.join(distRoot, 'runtime'));
+		expect(runtimeFiles.some((filePath) => filePath.includes('/x86_64-unknown-linux-gnu/'))).toBe(false);
+		expect(runtimeFiles.some((filePath) => filePath.endsWith('.old'))).toBe(false);
 	});
 });
