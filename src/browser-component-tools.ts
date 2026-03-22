@@ -1,3 +1,4 @@
+import { fetchRuntimeAssetBytes } from './runtime-asset.js';
 import { resolveRuntimeAssetUrl } from './runtime-manifest.js';
 
 const JCO_BROWSER_MODULE = '../vendor/jco/src/browser.js';
@@ -32,11 +33,10 @@ export async function componentizeCoreWasmToPreview2Component(
 		};
 	}>(runtimeBaseUrl, JCO_WASM_TOOLS_MODULE);
 	const adapterUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, PREVIEW1_COMMAND_ADAPTER);
-	const adapterResponse = await fetch(adapterUrl);
-	if (!adapterResponse.ok) {
-		throw new Error(`failed to fetch wasm-rust preview1 adapter from ${adapterUrl}`);
-	}
-	const adapterBytes = new Uint8Array(await adapterResponse.arrayBuffer());
+	const adapterBytes = await fetchRuntimeAssetBytes(
+		adapterUrl,
+		'wasm-rust preview1 adapter'
+	);
 	await wasmToolsModule.$init;
 	return wasmToolsModule.tools.componentNew(coreWasm, [['wasi_snapshot_preview1', adapterBytes]]);
 }

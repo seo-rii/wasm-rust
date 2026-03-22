@@ -35,10 +35,10 @@ describe('wasm-rust runtime manifest', () => {
 
 		expect(manifest.manifestVersion).toBe(3);
 		expect(manifest.targets['wasm32-wasip1']?.sysrootPack?.asset).toBe(
-			'packs/sysroot/wasm32-wasip1.pack'
+			'packs/sysroot/wasm32-wasip1.pack.gz'
 		);
 		expect(manifest.targets['wasm32-wasip2']?.compile.link.pack?.index).toBe(
-			'packs/link/wasm32-wasip2.index.json'
+			'packs/link/wasm32-wasip2.index.json.gz'
 		);
 	});
 

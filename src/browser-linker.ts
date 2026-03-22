@@ -1,4 +1,5 @@
 import { componentizeCoreWasmToPreview2Component } from './browser-component-tools.js';
+import { fetchRuntimeAssetBytes } from './runtime-asset.js';
 import {
 	clearRuntimeAssetPackCache,
 	loadRuntimePackEntries
@@ -174,13 +175,11 @@ export async function linkBitcodeWithLlvmWasm(
 		const assetUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, assetPath);
 		let cachedAsset = linkAssetCache.get(assetUrl);
 		if (!cachedAsset) {
-			cachedAsset = (async () => {
-				const response = await fetchImpl(assetUrl);
-				if (!response.ok) {
-					throw new Error(`failed to fetch wasm-rust link asset ${assetPath} from ${assetUrl}`);
-				}
-				return new Uint8Array(await response.arrayBuffer());
-			})();
+			cachedAsset = fetchRuntimeAssetBytes(
+				assetUrl,
+				`wasm-rust link asset ${assetPath}`,
+				fetchImpl
+			);
 			linkAssetCache.set(assetUrl, cachedAsset);
 			cachedAsset.catch(() => {
 				if (linkAssetCache.get(assetUrl) === cachedAsset) {
@@ -220,15 +219,11 @@ export async function linkBitcodeWithLlvmWasm(
 					const assetUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, assetPath);
 					let cachedAsset = linkAssetCache.get(assetUrl);
 					if (!cachedAsset) {
-						cachedAsset = (async () => {
-							const response = await fetchImpl(assetUrl);
-							if (!response.ok) {
-								throw new Error(
-									`failed to fetch wasm-rust link asset ${assetPath} from ${assetUrl}`
-								);
-							}
-							return new Uint8Array(await response.arrayBuffer());
-						})();
+						cachedAsset = fetchRuntimeAssetBytes(
+							assetUrl,
+							`wasm-rust link asset ${assetPath}`,
+							fetchImpl
+						);
 						linkAssetCache.set(assetUrl, cachedAsset);
 						cachedAsset.catch(() => {
 							if (linkAssetCache.get(assetUrl) === cachedAsset) {

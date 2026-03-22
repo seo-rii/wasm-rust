@@ -1,3 +1,5 @@
+import { gzipSync } from 'node:zlib';
+
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { clearLinkAssetCache, linkBitcodeWithLlvmWasm } from '../src/browser-linker.js';
@@ -184,36 +186,38 @@ describe('browser linker asset loading', () => {
 				importRuntimeModule: modules.importRuntimeModule,
 				fetchImpl: async (assetUrl) => {
 					requestedUrls.push(String(assetUrl));
-					if (String(assetUrl).endsWith('.index.json')) {
+					if (String(assetUrl).endsWith('.index.json.gz')) {
 						return new Response(
-							JSON.stringify({
-								format: 'wasm-rust-runtime-pack-index-v1',
-								fileCount: 2,
-								totalBytes: 6,
-								entries: [
-									{
-										runtimePath: '/rustlib/libstd.rlib',
-										offset: 0,
-										length: 4
-									},
-									{
-										runtimePath: '/work/alloc.o',
-										offset: 4,
-										length: 2
-									}
-								]
-							})
+							gzipSync(
+								JSON.stringify({
+									format: 'wasm-rust-runtime-pack-index-v1',
+									fileCount: 2,
+									totalBytes: 6,
+									entries: [
+										{
+											runtimePath: '/rustlib/libstd.rlib',
+											offset: 0,
+											length: 4
+										},
+										{
+											runtimePath: '/work/alloc.o',
+											offset: 4,
+											length: 2
+										}
+									]
+								})
+							)
 						);
 					}
-					return new Response(new Uint8Array([9, 8, 7, 6, 5, 4]));
+					return new Response(gzipSync(new Uint8Array([9, 8, 7, 6, 5, 4])));
 				}
 			}
 		);
 
 		expect(artifact.format).toBe('core-wasm');
 		expect(requestedUrls.sort()).toEqual([
-			'https://example.test/runtime/packs/link/wasm32-wasip1.index.json',
-			'https://example.test/runtime/packs/link/wasm32-wasip1.pack'
+			'https://example.test/runtime/packs/link/wasm32-wasip1.index.json.gz',
+			'https://example.test/runtime/packs/link/wasm32-wasip1.pack.gz'
 		]);
 		expect([...modules.writtenPaths.keys()]).toEqual(
 			expect.arrayContaining([

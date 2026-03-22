@@ -170,6 +170,7 @@ builtBrowserBundle('built browser bundle', () => {
 			defaultTargetTriple: string;
 			compiler: {
 				compileTimeoutMs: number;
+				rustcWasm: string;
 			};
 			targets: Record<
 				string,
@@ -220,10 +221,10 @@ builtBrowserBundle('built browser bundle', () => {
 		await expect(fs.access(path.join(runtimeRoot, 'runtime-manifest.json'))).rejects.toThrow();
 		for (const [targetTriple, targetConfig] of Object.entries(v3Manifest.targets)) {
 			expect(targetConfig.compile.link.args.some((entry) => entry.startsWith('/tmp/'))).toBe(false);
-			expect(targetConfig.sysrootPack.asset).toBe(`packs/sysroot/${targetTriple}.pack`);
-			expect(targetConfig.sysrootPack.index).toBe(`packs/sysroot/${targetTriple}.index.json`);
-			expect(targetConfig.compile.link.pack.asset).toBe(`packs/link/${targetTriple}.pack`);
-			expect(targetConfig.compile.link.pack.index).toBe(`packs/link/${targetTriple}.index.json`);
+			expect(targetConfig.sysrootPack.asset).toBe(`packs/sysroot/${targetTriple}.pack.gz`);
+			expect(targetConfig.sysrootPack.index).toBe(`packs/sysroot/${targetTriple}.index.json.gz`);
+			expect(targetConfig.compile.link.pack.asset).toBe(`packs/link/${targetTriple}.pack.gz`);
+			expect(targetConfig.compile.link.pack.index).toBe(`packs/link/${targetTriple}.index.json.gz`);
 			for (const assetPath of [
 				targetConfig.sysrootPack.asset,
 				targetConfig.sysrootPack.index,
@@ -232,8 +233,22 @@ builtBrowserBundle('built browser bundle', () => {
 			]) {
 				await expect(fs.access(path.join(runtimeRoot, assetPath))).resolves.toBeUndefined();
 			}
+			await expect(
+				fs.access(path.join(runtimeRoot, `packs/sysroot/${targetTriple}.pack`))
+			).rejects.toThrow();
+			await expect(
+				fs.access(path.join(runtimeRoot, `packs/sysroot/${targetTriple}.index.json`))
+			).rejects.toThrow();
+			await expect(
+				fs.access(path.join(runtimeRoot, `packs/link/${targetTriple}.pack`))
+			).rejects.toThrow();
+			await expect(
+				fs.access(path.join(runtimeRoot, `packs/link/${targetTriple}.index.json`))
+			).rejects.toThrow();
 			const sysrootIndex = JSON.parse(
-				await fs.readFile(path.join(runtimeRoot, targetConfig.sysrootPack.index), 'utf8')
+				gunzipSync(
+					await fs.readFile(path.join(runtimeRoot, targetConfig.sysrootPack.index))
+				).toString('utf8')
 			) as {
 				fileCount: number;
 				totalBytes: number;
@@ -280,12 +295,16 @@ builtBrowserBundle('built browser bundle', () => {
 				string,
 				{
 					sysrootPack: {
+						asset: string;
+						index: string;
 						fileCount: number;
 						totalBytes: number;
 					};
 					compile: {
 						link: {
 							pack: {
+								asset: string;
+								index: string;
 								fileCount: number;
 								totalBytes: number;
 							};
@@ -304,10 +323,10 @@ builtBrowserBundle('built browser bundle', () => {
 		for (const [targetTriple, targetConfig] of Object.entries(manifest.targets)) {
 			const assetBytes = targetConfig.sysrootPack.totalBytes + targetConfig.compile.link.pack.totalBytes;
 			const requestAssets = new Set([
-				`packs/sysroot/${targetTriple}.pack`,
-				`packs/sysroot/${targetTriple}.index.json`,
-				`packs/link/${targetTriple}.pack`,
-				`packs/link/${targetTriple}.index.json`
+				targetConfig.sysrootPack.asset,
+				targetConfig.sysrootPack.index,
+				targetConfig.compile.link.pack.asset,
+				targetConfig.compile.link.pack.index
 			]);
 
 			expect(

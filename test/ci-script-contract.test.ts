@@ -16,9 +16,22 @@ describe('ci script contract', () => {
 		const fastScript = packageJson.scripts?.['test:ci:fast'];
 
 		expect(packageJson.scripts?.['test:ci']).toBe('pnpm run test:ci:fast');
+		expect(packageJson.scripts?.['build:all-compressed']).toBe(
+			'WASM_RUST_PRECOMPRESS_SCOPES=all pnpm run build'
+		);
+		expect(packageJson.scripts?.['build:uncompressed']).toBe(
+			'WASM_RUST_PRECOMPRESS_SCOPES=none pnpm run build'
+		);
+		expect(packageJson.scripts?.['prepare:runtime:all-compressed']).toBe(
+			'WASM_RUST_PRECOMPRESS_SCOPES=all node scripts/prepare-runtime.mjs'
+		);
+		expect(packageJson.scripts?.['prepare:runtime:uncompressed']).toBe(
+			'WASM_RUST_PRECOMPRESS_SCOPES=none node scripts/prepare-runtime.mjs'
+		);
 		expect(fastScript).toContain('WASM_RUST_SKIP_DIST_TESTS=1');
 		expect(fastScript).not.toContain('pnpm build');
 		expect(fastScript).toContain('test/build-output.test.ts');
+		expect(fastScript).toContain('test/runtime-compression-config.test.ts');
 		expect(fastScript).toContain('test/rustc-runtime.test.ts');
 	});
 });

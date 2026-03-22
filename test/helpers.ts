@@ -173,8 +173,8 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 			'wasm32-wasip1': {
 				artifactFormat: 'core-wasm',
 				sysrootPack: {
-					asset: 'packs/sysroot/wasm32-wasip1.pack',
-					index: 'packs/sysroot/wasm32-wasip1.index.json',
+					asset: 'packs/sysroot/wasm32-wasip1.pack.gz',
+					index: 'packs/sysroot/wasm32-wasip1.index.json.gz',
 					fileCount: 1,
 					totalBytes: 3
 				},
@@ -187,8 +187,8 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 					link: {
 						args: ['-o', '/work/main.wasm'],
 						pack: {
-							asset: 'packs/link/wasm32-wasip1.pack',
-							index: 'packs/link/wasm32-wasip1.index.json',
+							asset: 'packs/link/wasm32-wasip1.pack.gz',
+							index: 'packs/link/wasm32-wasip1.index.json.gz',
 							fileCount: 2,
 							totalBytes: 6
 						}
@@ -201,8 +201,8 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 			'wasm32-wasip2': {
 				artifactFormat: 'component',
 				sysrootPack: {
-					asset: 'packs/sysroot/wasm32-wasip2.pack',
-					index: 'packs/sysroot/wasm32-wasip2.index.json',
+					asset: 'packs/sysroot/wasm32-wasip2.pack.gz',
+					index: 'packs/sysroot/wasm32-wasip2.index.json.gz',
 					fileCount: 1,
 					totalBytes: 3
 				},
@@ -215,8 +215,8 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 					link: {
 						args: ['-o', '/work/main.wasm'],
 						pack: {
-							asset: 'packs/link/wasm32-wasip2.pack',
-							index: 'packs/link/wasm32-wasip2.index.json',
+							asset: 'packs/link/wasm32-wasip2.pack.gz',
+							index: 'packs/link/wasm32-wasip2.index.json.gz',
 							fileCount: 2,
 							totalBytes: 6
 						}
@@ -229,8 +229,8 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 			'wasm32-wasip3': {
 				artifactFormat: 'component',
 				sysrootPack: {
-					asset: 'packs/sysroot/wasm32-wasip3.pack',
-					index: 'packs/sysroot/wasm32-wasip3.index.json',
+					asset: 'packs/sysroot/wasm32-wasip3.pack.gz',
+					index: 'packs/sysroot/wasm32-wasip3.index.json.gz',
 					fileCount: 1,
 					totalBytes: 3
 				},
@@ -243,8 +243,8 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 					link: {
 						args: ['-o', '/work/main.wasm'],
 						pack: {
-							asset: 'packs/link/wasm32-wasip3.pack',
-							index: 'packs/link/wasm32-wasip3.index.json',
+							asset: 'packs/link/wasm32-wasip3.pack.gz',
+							index: 'packs/link/wasm32-wasip3.index.json.gz',
 							fileCount: 2,
 							totalBytes: 6
 						}
@@ -256,6 +256,32 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 			}
 		},
 		...overrides
+	};
+}
+
+export function createCompileWorkerErrorMessage(error: string): CompileWorkerMessage {
+	return {
+		type: 'error',
+		error
+	};
+}
+
+export function createCompileWorkerLogMessage(log: string): CompileWorkerMessage {
+	return {
+		type: 'log',
+		log
+	};
+}
+
+export function createCompileWorkerResultMessage(stdout = ''): CompileWorkerMessage {
+	return {
+		type: 'result',
+		success: true,
+		stdout,
+		stderr: '',
+		exitCode: 0,
+		bitcode: null,
+		artifacts: {}
 	};
 }
 

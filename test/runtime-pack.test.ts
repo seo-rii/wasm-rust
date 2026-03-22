@@ -1,3 +1,5 @@
+import { gzipSync } from 'node:zlib';
+
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { buildRuntimePack } from '../scripts/runtime-pack.mjs';
@@ -34,24 +36,24 @@ describe('runtime pack', () => {
 		const loadedEntries = await loadRuntimePackEntries(
 			'https://example.test/runtime/',
 			{
-				asset: 'packs/sysroot/wasm32-wasip1.pack',
-				index: 'packs/sysroot/wasm32-wasip1.index.json',
+				asset: 'packs/sysroot/wasm32-wasip1.pack.gz',
+				index: 'packs/sysroot/wasm32-wasip1.index.json.gz',
 				fileCount: index.fileCount,
 				totalBytes: index.totalBytes
 			},
 			async (url) => {
-				if (String(url).endsWith('.index.json')) {
-					return new Response(JSON.stringify(index), {
+				if (String(url).endsWith('.index.json.gz')) {
+					return new Response(gzipSync(JSON.stringify(index)), {
 						status: 200,
 						headers: {
-							'content-type': 'application/json'
+							'content-type': 'application/gzip'
 						}
 					});
 				}
-				return new Response(packBytes, {
+				return new Response(gzipSync(packBytes), {
 					status: 200,
 					headers: {
-						'content-type': 'application/octet-stream'
+						'content-type': 'application/gzip'
 					}
 				});
 			}

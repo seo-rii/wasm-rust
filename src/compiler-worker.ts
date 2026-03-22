@@ -14,6 +14,7 @@ import {
 	reserveIdleThreadPoolSlot,
 	THREAD_STARTUP_STATE_INSTANTIATED
 } from './thread-startup.js';
+import { fetchRuntimeAssetBytes } from './runtime-asset.js';
 import { loadRuntimePackEntries } from './runtime-asset-store.js';
 
 const ARCHIVE_MAGIC = new Uint8Array([0x21, 0x3c, 0x61, 0x72, 0x63, 0x68, 0x3e, 0x0a]);
@@ -37,40 +38,7 @@ export function validateRuntimeAssetBytes(assetPath: string, bytes: Uint8Array) 
 	);
 }
 
-export async function fetchRuntimeAssetBytes(assetUrl: URL, assetLabel: string) {
-	let response: Response;
-	try {
-		response = await fetch(assetUrl);
-	} catch (error) {
-		throw new Error(
-			`failed to fetch ${assetLabel} from ${assetUrl.toString()}: ${error instanceof Error ? error.message : String(error)}. This usually means the browser loaded a stale wasm-rust bundle or blocked a nested runtime asset request; hard refresh and resync the runtime assets.`
-		);
-	}
-	if (!response.ok) {
-		throw new Error(
-			`failed to fetch ${assetLabel} from ${assetUrl.toString()} (status ${response.status}). This usually means the browser loaded a stale wasm-rust bundle or a nested runtime asset is missing.`
-		);
-	}
-	const assetBytes = new Uint8Array(await response.arrayBuffer());
-	if (!assetUrl.pathname.endsWith('.gz')) {
-		return assetBytes;
-	}
-	if (typeof DecompressionStream !== 'function') {
-		throw new Error(
-			`failed to decompress ${assetLabel} from ${assetUrl.toString()}: this browser does not support DecompressionStream('gzip').`
-		);
-	}
-	try {
-		const decompressedResponse = new Response(
-			new Blob([assetBytes]).stream().pipeThrough(new DecompressionStream('gzip'))
-		);
-		return new Uint8Array(await decompressedResponse.arrayBuffer());
-	} catch (error) {
-		throw new Error(
-			`failed to decompress ${assetLabel} from ${assetUrl.toString()}: ${error instanceof Error ? error.message : String(error)}`
-		);
-	}
-}
+export { fetchRuntimeAssetBytes };
 
 function buildRustcArguments(
 	request: CompileWorkerRequest['request'],

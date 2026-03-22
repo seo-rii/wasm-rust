@@ -43,6 +43,10 @@ const configuredTargetTriples = parseTargetTripleList(
 	process.env.WASM_RUST_RUNTIME_TARGET_TRIPLES || 'wasm32-wasip1,wasm32-wasip2,wasm32-wasip3',
 	'WASM_RUST_RUNTIME_TARGET_TRIPLES'
 );
+const configuredPrecompressionScopes = parseRuntimePrecompressionScopes(
+	process.env.WASM_RUST_PRECOMPRESS_SCOPES || 'all',
+	'WASM_RUST_PRECOMPRESS_SCOPES'
+);
 const defaultTargetTriple = parseTargetTriple(
 	process.env.WASM_RUST_DEFAULT_TARGET_TRIPLE || 'wasm32-wasip1',
 	'WASM_RUST_DEFAULT_TARGET_TRIPLE'
@@ -90,6 +94,50 @@ function parseTargetTripleList(value, label) {
 		throw new Error(`${label} must contain at least one target`);
 	}
 	return [...new Set(entries.map((entry) => parseTargetTriple(entry, label)))];
+}
+
+function parseRuntimePrecompressionScopes(value, label) {
+	const entries = value
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+	if (entries.length === 0) {
+		throw new Error(`${label} must contain at least one compression scope`);
+	}
+	if (entries.includes('none')) {
+		if (entries.length !== 1) {
+			throw new Error(`${label}=none cannot be combined with other compression scopes`);
+		}
+		return new Set();
+	}
+	const scopes = new Set();
+	for (const entry of entries) {
+		if (entry === 'all') {
+			scopes.add('rustc');
+			scopes.add('packs');
+			continue;
+		}
+		if (entry !== 'rustc' && entry !== 'packs') {
+			throw new Error(`invalid ${label}: ${entry}`);
+		}
+		scopes.add(entry);
+	}
+	return scopes;
+}
+
+function shouldPrecompressRuntimeAsset(scope) {
+	return configuredPrecompressionScopes.has(scope);
+}
+
+async function maybePrecompressRuntimeAsset(assetPath, scope) {
+	if (!shouldPrecompressRuntimeAsset(scope)) {
+		return relativeAssetPath(runtimeRoot, assetPath);
+	}
+	const sourceBytes = await fs.readFile(assetPath);
+	const compressedAssetPath = `${assetPath}.gz`;
+	await fs.writeFile(compressedAssetPath, gzipSync(sourceBytes, { level: 9 }));
+	await fs.rm(assetPath, { force: true });
+	return relativeAssetPath(runtimeRoot, compressedAssetPath);
 }
 
 function relativeAssetPath(root, fullPath) {
@@ -816,14 +864,16 @@ async function buildRuntimePackReference({
 	indexAsset,
 	entries
 }) {
+	const packPath = path.join(runtimeRoot, packAsset);
+	const indexPath = path.join(runtimeRoot, indexAsset);
 	const index = await writeRuntimePack({
-		packPath: path.join(runtimeRoot, packAsset),
-		indexPath: path.join(runtimeRoot, indexAsset),
+		packPath,
+		indexPath,
 		entries
 	});
 	return {
-		asset: packAsset,
-		index: indexAsset,
+		asset: await maybePrecompressRuntimeAsset(packPath, 'packs'),
+		index: await maybePrecompressRuntimeAsset(indexPath, 'packs'),
 		fileCount: index.fileCount,
 		totalBytes: index.totalBytes
 	};
@@ -837,11 +887,7 @@ async function main() {
 	const rustcTargetPath = path.join(runtimeRoot, 'rustc', 'rustc.wasm');
 	await copyFileIfNeeded(path.join(wasmRustcRoot, 'bin', 'rustc.wasm'), rustcTargetPath);
 	await patchRustcMemoryMaximum(rustcTargetPath);
-	const rustcGzipTargetPath = path.join(runtimeRoot, 'rustc', 'rustc.wasm.gz');
-	const rustcBytes = await fs.readFile(rustcTargetPath);
-	const compressedRustcBytes = gzipSync(rustcBytes, { level: 9 });
-	await fs.writeFile(rustcGzipTargetPath, compressedRustcBytes);
-	await fs.rm(rustcTargetPath, { force: true });
+	const rustcRuntimeAsset = await maybePrecompressRuntimeAsset(rustcTargetPath, 'rustc');
 
 	const llvmFiles = ['llc.js', 'llc.wasm', 'lld.js', 'lld.wasm', 'lld.data'];
 	for (const entry of llvmFiles) {
@@ -851,7 +897,7 @@ async function main() {
 	const sysrootSourceRoot = path.join(wasmRustcRoot, 'lib', 'rustlib');
 
 	const compiler = {
-		rustcWasm: 'rustc/rustc.wasm.gz',
+		rustcWasm: rustcRuntimeAsset,
 		workerBitcodeFile: bitcodeFileName,
 		workerSharedOutputBytes: 32 * 1024 * 1024,
 		compileTimeoutMs: 120_000,
@@ -975,4 +1021,4 @@ if (isDirectExecution) {
 	await main();
 }
 
-export { distRoot, projectRoot, runtimeRoot };
+export { distRoot, parseRuntimePrecompressionScopes, projectRoot, runtimeRoot };
