@@ -10,7 +10,12 @@ import { instantiateRustcInstance } from '../src/rustc-runtime.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rustcWasmPath = path.join(projectRoot, 'dist', 'runtime', 'rustc', 'rustc.wasm');
-const rustcWasmEnvShims = existsSync(rustcWasmPath) ? describe : describe.skip;
+const rustcWasmEnvShims =
+	process.env.WASM_RUST_SKIP_DIST_TESTS === '1'
+		? describe.skip
+		: existsSync(rustcWasmPath)
+			? describe
+			: describe.skip;
 
 rustcWasmEnvShims('rustc wasm env shims', () => {
 	afterEach(() => {

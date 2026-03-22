@@ -1,0 +1,24 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { describe, expect, it } from 'vitest';
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+describe('ci script contract', () => {
+	it('keeps the fast ci lane independent from runtime builds', async () => {
+		const packageJson = JSON.parse(
+			await readFile(path.join(projectRoot, 'package.json'), 'utf8')
+		) as {
+			scripts?: Record<string, string>;
+		};
+		const fastScript = packageJson.scripts?.['test:ci:fast'];
+
+		expect(packageJson.scripts?.['test:ci']).toBe('pnpm run test:ci:fast');
+		expect(fastScript).toContain('WASM_RUST_SKIP_DIST_TESTS=1');
+		expect(fastScript).not.toContain('pnpm build');
+		expect(fastScript).toContain('test/build-output.test.ts');
+		expect(fastScript).toContain('test/rustc-runtime.test.ts');
+	});
+});

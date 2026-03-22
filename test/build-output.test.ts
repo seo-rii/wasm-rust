@@ -14,7 +14,12 @@ import {
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distRoot = path.join(projectRoot, 'dist');
-const builtBrowserBundle = existsSync(distRoot) ? describe : describe.skip;
+const builtBrowserBundle =
+	process.env.WASM_RUST_SKIP_DIST_TESTS === '1'
+		? describe.skip
+		: existsSync(distRoot)
+			? describe
+			: describe.skip;
 
 async function listFiles(rootPath: string): Promise<string[]> {
 	const entries = await fs.readdir(rootPath, { withFileTypes: true });
