@@ -145,8 +145,8 @@ fi
 
 if [[ "$COMPILER_HOST_TARGET" == "wasm32-wasip1-threads" ]]; then
   if [[ -f "$RUST_ROOT/src/bootstrap/src/core/build_steps/llvm.rs" ]] && \
-    rg -q --fixed-strings 'if target.contains("wasip1-threads") {' "$RUST_ROOT/src/bootstrap/src/core/build_steps/llvm.rs" && \
-    rg -q --fixed-strings 'cflags.push(" -matomics -mbulk-memory");' "$RUST_ROOT/src/bootstrap/src/core/build_steps/llvm.rs"
+    grep -Fq 'if target.contains("wasip1-threads") {' "$RUST_ROOT/src/bootstrap/src/core/build_steps/llvm.rs" && \
+    grep -Fq 'cflags.push(" -matomics -mbulk-memory");' "$RUST_ROOT/src/bootstrap/src/core/build_steps/llvm.rs"
   then
     use_threaded_host_env_flags=0
     printf '[%s] build-custom-rustc-toolchain: detected browser-patched bootstrap LLVM config; skipping external CFLAGS_wasm32_wasip1_threads/CXXFLAGS_wasm32_wasip1_threads injection for %s\n' \
@@ -267,7 +267,7 @@ if [[ -n "$BUILD_HOST_TARGET" ]]; then
         "$build_host_stage_root" "$stale_stage1_reason" >> "$LOG"
     fi
   fi
-  if [[ -f "$build_host_llvm_root/CMakeCache.txt" ]] && rg -q --fixed-strings -- '--target=wasm32-wasip1-threads' "$build_host_llvm_root/CMakeCache.txt"; then
+  if [[ -f "$build_host_llvm_root/CMakeCache.txt" ]] && grep -Fq -- '--target=wasm32-wasip1-threads' "$build_host_llvm_root/CMakeCache.txt"; then
     rm -rf "$build_host_llvm_root"
     printf '[%s] build-custom-rustc-toolchain: removed stale native LLVM build dir %s because its CMake cache captured browser-host thread flags\n' \
       "$(date -Is)" "$build_host_llvm_root" >> "$LOG"
@@ -461,7 +461,7 @@ fi
 
 llvm_build_reconfigure_reason=""
 if [[ -f "$LLVM_BUILD/CMakeCache.txt" && "$COMPILER_HOST_TARGET" == "wasm32-wasip1-threads" && "$use_threaded_host_env_flags" -eq 1 ]]; then
-  if ! rg -q --fixed-strings -- "-DBYTE_ORDER=__BYTE_ORDER__" "$LLVM_BUILD/CMakeCache.txt"; then
+  if ! grep -Fq -- "-DBYTE_ORDER=__BYTE_ORDER__" "$LLVM_BUILD/CMakeCache.txt"; then
     rm -rf "$LLVM_BUILD"
     llvm_build_reconfigure_reason='was removed because CMakeCache.txt lacks thread-aware endian defines'
   fi
@@ -509,8 +509,8 @@ if [[ -d "$LLVM_BUILD" && ( -f "$LLVM_BUILD/Makefile" || -f "$LLVM_BUILD/build.n
     fi
     if [[ "$llvm_install_attempt" -eq 1 ]] && \
       [[ -f "$LLVM_BUILD/tools/llvm-cxxfilt/CMakeFiles/llvm-cxxfilt.dir/link.txt" ]] && \
-      sed -n "$((llvm_log_start_line + 1)),\$p" "$LOG" | rg -q --fixed-strings 'file INSTALL cannot find' && \
-      sed -n "$((llvm_log_start_line + 1)),\$p" "$LOG" | rg -q --fixed-strings 'llvm-cxxfilt'
+      sed -n "$((llvm_log_start_line + 1)),\$p" "$LOG" | grep -Fq 'file INSTALL cannot find' && \
+      sed -n "$((llvm_log_start_line + 1)),\$p" "$LOG" | grep -Fq 'llvm-cxxfilt'
     then
       {
         llvm_repair_status=0

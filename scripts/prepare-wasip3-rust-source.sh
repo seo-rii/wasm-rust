@@ -132,7 +132,7 @@ pub fn target() -> Target {
 EOF
 fi
 
-if ! rg -q --fixed-strings '("wasm32-wasip3", wasm32_wasip3),' "$rust_root/$target_registry"; then
+if ! grep -Fq '("wasm32-wasip3", wasm32_wasip3),' "$rust_root/$target_registry"; then
   perl -0pi -e 's/\("wasm32-wasip2", wasm32_wasip2\),\n/\("wasm32-wasip2", wasm32_wasip2\),\n    \("wasm32-wasip3", wasm32_wasip3\),\n/' \
     "$rust_root/$target_registry"
 fi
@@ -144,12 +144,12 @@ perl -0pi -e 's/\.join\(target\.to_string\(\)\.replace\("-preview1", ""\)\.repla
 perl -0pi -e 's/("native=\{\}\/lib\/\{\}",\n\s+p\.to_str\(\)\.unwrap\(\),\n\s+)target\.to_string\(\)\.replace\("-preview1", ""\)/$1if target == "wasm32-wasip3" { "wasm32-wasip2".to_string() } else { target.to_string().replace("-preview1", "") }/' \
   "$rust_root/$bootstrap_compile"
 
-if ! rg -q 'target_env = "p3"' "$rust_root/$std_pal"; then
+if ! grep -q 'target_env = "p3"' "$rust_root/$std_pal"; then
   perl -0pi -e 's/all\(target_os = "wasi", target_env = "p2"\)/all(target_os = "wasi", any(target_env = "p2", target_env = "p3"))/' \
     "$rust_root/$std_pal"
 fi
 
-if ! rg -q 'target_env = "p3"' "$rust_root/$std_os"; then
+if ! grep -q 'target_env = "p3"' "$rust_root/$std_os"; then
   perl -0pi -e 's/all\(target_os = "wasi", target_env = "p2"\)/all(target_os = "wasi", any(target_env = "p2", target_env = "p3"))/' \
     "$rust_root/$std_os"
 fi

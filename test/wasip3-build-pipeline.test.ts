@@ -17,6 +17,14 @@ async function makeTempDir() {
 	return dir;
 }
 
+async function createMissingRipgrepShim(root: string) {
+	const fakeBinDir = path.join(root, 'fake-bin');
+	await fs.mkdir(fakeBinDir, { recursive: true });
+	await fs.writeFile(path.join(fakeBinDir, 'rg'), '#!/usr/bin/env bash\nexit 127\n', 'utf8');
+	await fs.chmod(path.join(fakeBinDir, 'rg'), 0o755);
+	return fakeBinDir;
+}
+
 describe('wasm32-wasip3 build pipeline', () => {
 	afterEach(async () => {
 		await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
@@ -546,6 +554,7 @@ exit 0
 		const llvmBuildDir = path.join(root, 'llvm', 'build');
 		const configPath = path.join(rustRoot, 'config.wasm-rust-browser.toml');
 		const logPath = path.join(root, 'wasm-rust-custom-toolchain.log');
+		const fakeBinDir = await createMissingRipgrepShim(root);
 
 		await fs.mkdir(path.join(llvmBuildDir, 'tools'), { recursive: true });
 		await fs.mkdir(path.join(rustRoot, 'src', 'llvm-project', 'llvm'), { recursive: true });
@@ -570,6 +579,7 @@ exit 0
 			cwd: projectRoot,
 			env: {
 				...process.env,
+				PATH: `${fakeBinDir}:${process.env.PATH || ''}`,
 				WASM_RUST_CUSTOM_TOOLCHAIN_ROOT: root,
 				WASM_RUST_RUST_SOURCE_ROOT: rustRoot,
 				WASM_RUST_RUST_CONFIG: configPath,
@@ -748,6 +758,7 @@ printf '%s\\n' "\${CXXFLAGS_wasm32_wasip1_threads:-}" > ${JSON.stringify(recorde
 		const recordedThreadCFlagsPath = path.join(root, 'recorded-thread-cflags.txt');
 		const recordedThreadCxxFlagsPath = path.join(root, 'recorded-thread-cxxflags.txt');
 		const logPath = path.join(root, 'wasm-rust-custom-toolchain.log');
+		const fakeBinDir = await createMissingRipgrepShim(root);
 
 		await fs.mkdir(path.join(rustRoot, 'src', 'bootstrap', 'src', 'core', 'build_steps'), {
 			recursive: true
@@ -774,6 +785,7 @@ printf '%s\\n' "\${CXXFLAGS_wasm32_wasip1_threads:-}" > ${JSON.stringify(recorde
 			cwd: projectRoot,
 			env: {
 				...process.env,
+				PATH: `${fakeBinDir}:${process.env.PATH || ''}`,
 				WASM_RUST_CUSTOM_TOOLCHAIN_ROOT: root,
 				WASM_RUST_RUST_SOURCE_ROOT: rustRoot,
 				WASM_RUST_RUST_CONFIG: configPath,
@@ -1031,6 +1043,7 @@ printf '%s\\n' "\${CARGO_INCREMENTAL:-}" > ${JSON.stringify(recordedIncrementalP
 		const logPath = path.join(root, 'wasm-rust-custom-toolchain.log');
 		const buildHostRoot = path.join(rustRoot, 'build', 'x86_64-unknown-linux-gnu');
 		const staleNativeLlvmDir = path.join(buildHostRoot, 'llvm', 'build');
+		const fakeBinDir = await createMissingRipgrepShim(root);
 
 		await fs.mkdir(llvmBuildDir, { recursive: true });
 		await fs.mkdir(staleNativeLlvmDir, { recursive: true });
@@ -1051,6 +1064,7 @@ printf '%s\\n' "\${CARGO_INCREMENTAL:-}" > ${JSON.stringify(recordedIncrementalP
 			cwd: projectRoot,
 			env: {
 				...process.env,
+				PATH: `${fakeBinDir}:${process.env.PATH || ''}`,
 				WASM_RUST_CUSTOM_TOOLCHAIN_ROOT: root,
 				WASM_RUST_RUST_SOURCE_ROOT: rustRoot,
 				WASM_RUST_RUST_CONFIG: configPath,
