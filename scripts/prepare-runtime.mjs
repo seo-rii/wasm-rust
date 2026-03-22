@@ -35,7 +35,8 @@ const matchingNativeSysrootRoot =
 	process.env.WASM_RUST_MATCHING_NATIVE_SYSROOT_ROOT || wasmRustcRoot;
 const llvmWasmRoot =
 	process.env.WASM_RUST_LLVM_WASM_ROOT || '/home/seorii/.cache/llvm-wasm-20260319';
-const wasiSdkRoot = process.env.WASM_RUST_WASI_SDK_ROOT || process.env.WASI_SDK_PATH || '';
+const configuredWasiSdkRoot =
+	process.env.WASM_RUST_WASI_SDK_ROOT || process.env.WASI_SDK_PATH || '';
 const configuredTargetTriples = parseTargetTripleList(
 	process.env.WASM_RUST_RUNTIME_TARGET_TRIPLES || 'wasm32-wasip1,wasm32-wasip2',
 	'WASM_RUST_RUNTIME_TARGET_TRIPLES'
@@ -366,31 +367,98 @@ async function detectWasiSdkVersion(root) {
 	return null;
 }
 
+async function collectNestedWasiSdkRoots(baseRoot) {
+	if (!(await pathExists(baseRoot))) {
+		return [];
+	}
+	const entries = await fs.readdir(baseRoot, { withFileTypes: true });
+	const candidates = [];
+	for (const entry of entries) {
+		if (!entry.isDirectory()) {
+			continue;
+		}
+		const fullPath = path.join(baseRoot, entry.name);
+		if (entry.name.startsWith('wasi-sdk-')) {
+			candidates.push(fullPath);
+			continue;
+		}
+		if (!entry.name.startsWith('wasm-rust')) {
+			continue;
+		}
+		const nestedEntries = await fs.readdir(fullPath, { withFileTypes: true }).catch(() => []);
+		for (const nestedEntry of nestedEntries) {
+			if (!nestedEntry.isDirectory() || !nestedEntry.name.startsWith('wasi-sdk-')) {
+				continue;
+			}
+			candidates.push(path.join(fullPath, nestedEntry.name));
+		}
+	}
+	return candidates;
+}
+
 async function resolveWasiSdkSupport() {
-	if (!wasiSdkRoot) {
+	const candidateRoots = configuredWasiSdkRoot
+		? [configuredWasiSdkRoot]
+		: [
+				...(await collectNestedWasiSdkRoots(path.dirname(path.dirname(wasmRustcRoot)))),
+				...(await collectNestedWasiSdkRoots(path.join(os.homedir(), '.cache')))
+			];
+	const seenRoots = new Set();
+	const compatibleRoots = [];
+	for (const candidateRoot of candidateRoots) {
+		if (!candidateRoot || seenRoots.has(candidateRoot)) {
+			continue;
+		}
+		seenRoots.add(candidateRoot);
+		if (!(await pathExists(candidateRoot))) {
+			if (configuredWasiSdkRoot) {
+				throw new Error(
+					`configured WASM_RUST_WASI_SDK_ROOT does not exist: ${candidateRoot}`
+				);
+			}
+			continue;
+		}
+		const componentLinkerPath = path.join(candidateRoot, 'bin', 'wasm-component-ld');
+		if (!(await pathExists(componentLinkerPath))) {
+			if (configuredWasiSdkRoot) {
+				throw new Error(`wasi-sdk at ${candidateRoot} is missing bin/wasm-component-ld`);
+			}
+			continue;
+		}
+		const version = await detectWasiSdkVersion(candidateRoot);
+		if (!version) {
+			if (configuredWasiSdkRoot) {
+				throw new Error(`failed to determine wasi-sdk version under ${candidateRoot}`);
+			}
+			continue;
+		}
+		if (version.major < 22) {
+			if (configuredWasiSdkRoot) {
+				throw new Error(
+					`wasi-sdk >= 22 is required for wasm32-wasip2/wasm32-wasip3 support (found ${version.major}.${version.minor} at ${candidateRoot})`
+				);
+			}
+			continue;
+		}
+		compatibleRoots.push({
+			root: candidateRoot,
+			componentLinkerPath,
+			version
+		});
+	}
+	if (compatibleRoots.length === 0) {
 		return null;
 	}
-	if (!(await pathExists(wasiSdkRoot))) {
-		throw new Error(`configured WASM_RUST_WASI_SDK_ROOT does not exist: ${wasiSdkRoot}`);
-	}
-	const componentLinkerPath = path.join(wasiSdkRoot, 'bin', 'wasm-component-ld');
-	if (!(await pathExists(componentLinkerPath))) {
-		throw new Error(`wasi-sdk at ${wasiSdkRoot} is missing bin/wasm-component-ld`);
-	}
-	const version = await detectWasiSdkVersion(wasiSdkRoot);
-	if (!version) {
-		throw new Error(`failed to determine wasi-sdk version under ${wasiSdkRoot}`);
-	}
-	if (version.major < 22) {
-		throw new Error(
-			`wasi-sdk >= 22 is required for wasm32-wasip2/wasm32-wasip3 support (found ${version.major}.${version.minor} at ${wasiSdkRoot})`
-		);
-	}
-	return {
-		root: wasiSdkRoot,
-		componentLinkerPath,
-		version
-	};
+	compatibleRoots.sort((left, right) => {
+		if (left.version.major !== right.version.major) {
+			return right.version.major - left.version.major;
+		}
+		if (left.version.minor !== right.version.minor) {
+			return right.version.minor - left.version.minor;
+		}
+		return left.root.localeCompare(right.root);
+	});
+	return compatibleRoots[0];
 }
 
 function isComponentTarget(targetTriple) {
@@ -794,6 +862,11 @@ async function main() {
 		console.warn(`[wasm-rust] skipping wasi-sdk component support: ${error.message}`);
 		return null;
 	});
+	if (wasiSdkSupport && !configuredWasiSdkRoot) {
+		console.log(
+			`[wasm-rust] auto-detected wasi-sdk root ${wasiSdkSupport.root} (${wasiSdkSupport.version.major}.${wasiSdkSupport.version.minor})`
+		);
+	}
 
 	const targets = {};
 	for (const targetTriple of configuredTargetTriples) {

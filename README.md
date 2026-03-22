@@ -43,13 +43,18 @@ cd /home/seorii/dev/hancomac/wasm-rust
 pnpm build
 ```
 
+`pnpm build` now auto-detects a cached `wasi-sdk >= 22` under the toolchain cache root and
+`$HOME/.cache/wasm-rust*/wasi-sdk-*`, so `wasm32-wasip2` is included again on this workspace
+without exporting `WASM_RUST_WASI_SDK_ROOT` manually.
+
 Package the dual-target runtime bundle, including `wasm32-wasip2`:
 
 ```bash
 cd /home/seorii/dev/hancomac/wasm-rust
-WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
 pnpm run prepare:runtime:wasip2
 ```
+
+Set `WASM_RUST_WASI_SDK_ROOT` only when you want to override that auto-detected cache path.
 
 Prepare the patched toolchain inputs needed for `wasm32-wasip3`:
 

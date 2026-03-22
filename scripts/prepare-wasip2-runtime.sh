@@ -10,10 +10,8 @@ Usage: scripts/prepare-wasip2-runtime.sh [--probe]
 
 Build a wasm-rust runtime bundle with wasm32-wasip2 enabled.
 
-Required environment:
-  WASM_RUST_WASI_SDK_ROOT                Path to wasi-sdk >= 22 with bin/wasm-component-ld
-
 Optional environment:
+  WASM_RUST_WASI_SDK_ROOT                Path to wasi-sdk >= 22 with bin/wasm-component-ld
   WASM_RUST_RUSTC_ROOT                   Custom Rust install root containing rustc.wasm and wasm32-wasip2 sysroot
   WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT Matching stage2 toolchain used to probe native link args
   WASM_RUST_MATCHING_NATIVE_SYSROOT_ROOT Native sysroot root used with the matching rustc (defaults to WASM_RUST_RUSTC_ROOT)
@@ -42,7 +40,27 @@ runtime_target_triples="${WASM_RUST_RUNTIME_TARGET_TRIPLES:-wasm32-wasip1,wasm32
 default_target_triple="${WASM_RUST_DEFAULT_TARGET_TRIPLE:-wasm32-wasip1}"
 
 if [[ -z "$wasi_sdk_root" ]]; then
-  printf 'WASM_RUST_WASI_SDK_ROOT is required to package wasm32-wasip2\n' >&2
+  mapfile -t wasi_sdk_candidates < <(
+    find \
+      "$(dirname "$(dirname "$rustc_root")")" \
+      "$HOME/.cache" \
+      -maxdepth 3 \
+      -type d \
+      -name 'wasi-sdk-*' \
+      2>/dev/null \
+      | sort -Vr
+  )
+  for candidate in "${wasi_sdk_candidates[@]}"; do
+    if [[ -x "$candidate/bin/wasm-component-ld" ]]; then
+      wasi_sdk_root="$candidate"
+      printf '[wasm-rust] auto-detected wasi-sdk root: %s\n' "$wasi_sdk_root"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$wasi_sdk_root" ]]; then
+  printf 'WASM_RUST_WASI_SDK_ROOT is required to package wasm32-wasip2, or a cached wasi-sdk >= 22 must exist under the rustc cache / $HOME/.cache\n' >&2
   exit 1
 fi
 

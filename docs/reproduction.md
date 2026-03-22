@@ -139,6 +139,10 @@ WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
 pnpm run prepare:runtime:wasip3
 ```
 
+The default runtime scripts now auto-detect cached `wasi-sdk-*` directories under the toolchain
+cache root and `$HOME/.cache/wasm-rust*/`. Keep `WASM_RUST_WASI_SDK_ROOT` only when you need to
+override that cache path.
+
 Important expectations for that path:
 
 - the Rust checkout must already contain `compiler/rustc_target/src/spec/targets/wasm32_wasip3.rs`

@@ -120,6 +120,8 @@ builtBrowserBundle('built browser bundle', () => {
 		expect(v3Manifest.defaultTargetTriple).toBe('wasm32-wasip1');
 		expect(v3Manifest.compiler.compileTimeoutMs).toBe(120_000);
 		expect(v3Manifest.targets['wasm32-wasip1']?.artifactFormat).toBe('core-wasm');
+		expect(v3Manifest.targets['wasm32-wasip2']?.artifactFormat).toBe('component');
+		expect(v3Manifest.targets['wasm32-wasip2']?.execution.kind).toBe('preview2-component');
 		if (v3Manifest.targets['wasm32-wasip3']) {
 			expect(v3Manifest.targets['wasm32-wasip3'].artifactFormat).toBe('component');
 			expect(v3Manifest.targets['wasm32-wasip3'].execution.kind).toBe('preview2-component');

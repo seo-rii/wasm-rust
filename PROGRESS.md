@@ -25,6 +25,8 @@ This file records the current checked-in state only. Historical investigation de
   instead of inferring status from log text alone.
 - Browser runtime assets are now shipped as per-target sysroot/link packs with sidecar indexes, so
   the compiler and linker stop issuing file-per-asset fetch storms.
+- The default `pnpm build` path now auto-detects a cached `wasi-sdk >= 22`, which restores
+  `wasm32-wasip2` packaging on this workspace without a manual env var export.
 - Browser helper-thread startup is now handshake-based and the packaged `rustc.wasm` host injects
   `RUST_MIN_STACK=8388608` plus current required `env` shims, which materially improved helper
   startup stability.

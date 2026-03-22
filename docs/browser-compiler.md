@@ -80,7 +80,10 @@ These are required for the browser path to work.
   - `-L` directories stay in link args only.
   - directory-only entries must not appear in the generated pack index.
 - Preview2 packaging requires an external toolchain prerequisite.
-  - `wasm32-wasip2` packaging expects `WASM_RUST_WASI_SDK_ROOT` to point at `wasi-sdk >= 22`
+  - `wasm32-wasip2` packaging expects `wasi-sdk >= 22`
+  - `prepare-runtime.mjs` now auto-detects cached `wasi-sdk-*` directories under the toolchain
+    cache root and `$HOME/.cache/wasm-rust*/`
+  - `WASM_RUST_WASI_SDK_ROOT` still overrides the detected path when needed
   - `bin/wasm-component-ld` must be present there
 - Preview3 packaging currently requires an extra Rust build patch.
   - as documented by rustc on 2025-10-01, `wasm32-wasip3` does not build upstream without a `libc`
