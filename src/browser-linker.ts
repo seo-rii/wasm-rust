@@ -6,6 +6,8 @@ import {
 } from './runtime-manifest.js';
 import type { BrowserRustCompilerResult } from './types.js';
 
+const linkAssetCache = new Map<string, Promise<Uint8Array>>();
+
 export interface LinkBitcodeWithLlvmWasmOptions {
 	onProgress?: (progress: {
 		stage: 'link' | 'componentize';
@@ -13,6 +15,9 @@ export interface LinkBitcodeWithLlvmWasmOptions {
 		total: number;
 		message?: string;
 	}) => void;
+	fetchImpl?: typeof fetch;
+	importRuntimeModule?: <T>(assetUrl: string) => Promise<T>;
+	componentizeCoreWasm?: typeof componentizeCoreWasmToPreview2Component;
 }
 
 function mkdirp(module: { FS: { mkdir(path: string): void } }, targetPath: string) {
@@ -46,6 +51,10 @@ function formatToolFailure(
 	return new Error(parts.join(' | '));
 }
 
+export function clearLinkAssetCache() {
+	linkAssetCache.clear();
+}
+
 export async function linkBitcodeWithLlvmWasm(
 	bitcode: Uint8Array,
 	manifest: NormalizedRuntimeManifest,
@@ -53,15 +62,32 @@ export async function linkBitcodeWithLlvmWasm(
 	runtimeBaseUrl: string,
 	options: LinkBitcodeWithLlvmWasmOptions = {}
 ): Promise<NonNullable<BrowserRustCompilerResult['artifact']>> {
+	const loadRuntimeModule =
+		options.importRuntimeModule ||
+		(<T>(assetUrl: string) => import(/* @vite-ignore */ assetUrl) as Promise<T>);
+	const fetchImpl = options.fetchImpl || fetch;
+	const componentizeCoreWasm =
+		options.componentizeCoreWasm || componentizeCoreWasmToPreview2Component;
 	options.onProgress?.({
 		stage: 'link',
 		completed: 0,
 		total: 2,
 		message: 'running llvm-wasm code generation'
 	});
-	const { default: Llc } = await import(
-		resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.llc)
-	);
+	const { default: Llc } = await loadRuntimeModule<{
+		default: (options: {
+			locateFile(file: string): string;
+			print(text: string): void;
+			printErr(text: string): void;
+		}) => Promise<{
+			FS: {
+				mkdir(path: string): void;
+				writeFile(path: string, contents: Uint8Array): void;
+				readFile(path: string): Uint8Array;
+			};
+			callMain(args: string[]): Promise<void>;
+		}>;
+	}>(resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.llc));
 	const llcStdout: string[] = [];
 	const llcStderr: string[] = [];
 	const llc = await Llc({
@@ -107,9 +133,20 @@ export async function linkBitcodeWithLlvmWasm(
 		message: 'running lld link'
 	});
 
-	const { default: Lld } = await import(
-		resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.lld)
-	);
+	const { default: Lld } = await loadRuntimeModule<{
+		default: (options: {
+			locateFile(file: string): string;
+			print(text: string): void;
+			printErr(text: string): void;
+		}) => Promise<{
+			FS: {
+				mkdir(path: string): void;
+				writeFile(path: string, contents: Uint8Array): void;
+				readFile(path: string): Uint8Array;
+			};
+			callMain(args: string[]): Promise<void>;
+		}>;
+	}>(resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.lld));
 	const lldStdout: string[] = [];
 	const lldStderr: string[] = [];
 	const lld = await Lld({
@@ -130,20 +167,71 @@ export async function linkBitcodeWithLlvmWasm(
 			return;
 		}
 		const assetUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, assetPath);
-		const response = await fetch(assetUrl);
-		if (!response.ok) {
-			throw new Error(`failed to fetch wasm-rust link asset ${assetPath} from ${assetUrl}`);
+		let cachedAsset = linkAssetCache.get(assetUrl);
+		if (!cachedAsset) {
+			cachedAsset = (async () => {
+				const response = await fetchImpl(assetUrl);
+				if (!response.ok) {
+					throw new Error(`failed to fetch wasm-rust link asset ${assetPath} from ${assetUrl}`);
+				}
+				return new Uint8Array(await response.arrayBuffer());
+			})();
+			linkAssetCache.set(assetUrl, cachedAsset);
+			cachedAsset.catch(() => {
+				if (linkAssetCache.get(assetUrl) === cachedAsset) {
+					linkAssetCache.delete(assetUrl);
+				}
+			});
 		}
-		lld.FS.writeFile(runtimePath, new Uint8Array(await response.arrayBuffer()));
+		lld.FS.writeFile(runtimePath, await cachedAsset);
 	};
 
+	const prefetchedAssets = new Map<string, Uint8Array>();
+	const assetPrefetches = new Map<string, Promise<Uint8Array>>();
+	for (const assetPath of [
+		target.compile.link.allocatorObjectAsset,
+		...target.compile.link.files.map((entry) => entry.asset)
+	]) {
+		if (assetPrefetches.has(assetPath)) {
+			continue;
+		}
+		assetPrefetches.set(
+			assetPath,
+			(async () => {
+				const assetUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, assetPath);
+				let cachedAsset = linkAssetCache.get(assetUrl);
+				if (!cachedAsset) {
+					cachedAsset = (async () => {
+						const response = await fetchImpl(assetUrl);
+						if (!response.ok) {
+							throw new Error(
+								`failed to fetch wasm-rust link asset ${assetPath} from ${assetUrl}`
+							);
+						}
+						return new Uint8Array(await response.arrayBuffer());
+					})();
+					linkAssetCache.set(assetUrl, cachedAsset);
+					cachedAsset.catch(() => {
+						if (linkAssetCache.get(assetUrl) === cachedAsset) {
+							linkAssetCache.delete(assetUrl);
+						}
+					});
+				}
+				const bytes = await cachedAsset;
+				prefetchedAssets.set(assetPath, bytes);
+				return bytes;
+			})()
+		);
+	}
+	await Promise.all(assetPrefetches.values());
 	await addFile('/work/main.o', '', mainObject);
 	await addFile(
 		target.compile.link.allocatorObjectRuntimePath,
-		target.compile.link.allocatorObjectAsset
+		target.compile.link.allocatorObjectAsset,
+		prefetchedAssets.get(target.compile.link.allocatorObjectAsset)
 	);
 	for (const entry of target.compile.link.files) {
-		await addFile(entry.runtimePath, entry.asset);
+		await addFile(entry.runtimePath, entry.asset, prefetchedAssets.get(entry.asset));
 	}
 	try {
 		await lld.callMain([...target.compile.link.args]);
@@ -171,7 +259,7 @@ export async function linkBitcodeWithLlvmWasm(
 				total: 1,
 				message: 'encoding preview2 component'
 			});
-			const component = await componentizeCoreWasmToPreview2Component(coreWasm, runtimeBaseUrl);
+			const component = await componentizeCoreWasm(coreWasm, runtimeBaseUrl);
 			options.onProgress?.({
 				stage: 'componentize',
 				completed: 1,

@@ -23,6 +23,8 @@ This file records the current checked-in state only. Historical investigation de
   separately through `result.logs` instead of being merged into `stdout`.
 - The standalone browser harness now renders a real progress bar from structured progress events
   instead of inferring status from log text alone.
+- Browser linker runtime assets are now prefetched in parallel and cached by asset URL, which cuts
+  redundant `link` fetches without changing the manifest format yet.
 - Browser helper-thread startup is now handshake-based and the packaged `rustc.wasm` host injects
   `RUST_MIN_STACK=8388608` plus current required `env` shims, which materially improved helper
   startup stability.

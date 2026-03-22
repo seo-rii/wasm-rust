@@ -1,0 +1,164 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { clearLinkAssetCache, linkBitcodeWithLlvmWasm } from '../src/browser-linker.js';
+import { normalizeRuntimeManifest, resolveTargetManifest } from '../src/runtime-manifest.js';
+import { createRuntimeManifest } from './helpers.js';
+
+function createFakeLlvmModules() {
+	const llcFiles = new Map<string, Uint8Array>();
+	const lldFiles = new Map<string, Uint8Array>();
+
+	return {
+		writtenPaths: lldFiles,
+		importRuntimeModule: async <T>(assetUrl: string) => {
+			if (assetUrl.endsWith('/llvm/llc.js')) {
+				return {
+					default: async () => ({
+						FS: {
+							mkdir() {},
+							writeFile(filePath: string, contents: Uint8Array) {
+								llcFiles.set(filePath, new Uint8Array(contents));
+							},
+							readFile(filePath: string) {
+								const file = llcFiles.get(filePath);
+								if (!file) {
+									throw new Error(`missing fake llc file ${filePath}`);
+								}
+								return file;
+							}
+						},
+						async callMain() {
+							llcFiles.set('/work/main.o', new Uint8Array([0xaa, 0xbb, 0xcc]));
+						}
+					})
+				} as T;
+			}
+			if (assetUrl.endsWith('/llvm/lld.js')) {
+				return {
+					default: async () => ({
+						FS: {
+							mkdir() {},
+							writeFile(filePath: string, contents: Uint8Array) {
+								lldFiles.set(filePath, new Uint8Array(contents));
+							},
+							readFile(filePath: string) {
+								const file = lldFiles.get(filePath);
+								if (!file) {
+									throw new Error(`missing fake lld file ${filePath}`);
+								}
+								return file;
+							}
+						},
+						async callMain() {
+							lldFiles.set('/work/main.wasm', new Uint8Array([0x00, 0x61, 0x73, 0x6d]));
+						}
+					})
+				} as T;
+			}
+			throw new Error(`unexpected runtime module ${assetUrl}`);
+		}
+	};
+}
+
+function createNormalizedTarget() {
+	const manifest = normalizeRuntimeManifest(createRuntimeManifest());
+	const target = resolveTargetManifest(manifest);
+	target.compile.link.files = [
+		...target.compile.link.files,
+		{
+			asset: 'link/extra.a',
+			runtimePath: '/rustlib/extra.a'
+		}
+	];
+	return {
+		manifest,
+		target
+	};
+}
+
+describe('browser linker asset loading', () => {
+	beforeEach(() => {
+		clearLinkAssetCache();
+	});
+
+	it('prefetches link assets in parallel before writing them into lld', async () => {
+		const { manifest, target } = createNormalizedTarget();
+		const modules = createFakeLlvmModules();
+		const requestedUrls: string[] = [];
+		const pendingResponses = new Map<string, (response: Response) => void>();
+		const expectedUrls = [
+			target.compile.link.allocatorObjectAsset,
+			...target.compile.link.files.map((entry) => entry.asset)
+		].map((assetPath) => `https://example.test/runtime/${assetPath}`);
+
+		const linkPromise = linkBitcodeWithLlvmWasm(
+			new Uint8Array([1, 2, 3, 4]),
+			manifest,
+			target,
+			'https://example.test/runtime/',
+			{
+				importRuntimeModule: modules.importRuntimeModule,
+				fetchImpl: async (assetUrl) =>
+					await new Promise<Response>((resolve) => {
+						requestedUrls.push(String(assetUrl));
+						pendingResponses.set(String(assetUrl), resolve);
+					})
+			}
+		);
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(requestedUrls.sort()).toEqual(expectedUrls.sort());
+
+		for (const [assetUrl, resolve] of pendingResponses) {
+			resolve(new Response(new Uint8Array(assetUrl.endsWith('alloc.o') ? [1] : [2, 3, 4])));
+		}
+
+		const artifact = await linkPromise;
+
+		expect(artifact.format).toBe('core-wasm');
+		expect([...modules.writtenPaths.keys()]).toEqual(
+			expect.arrayContaining([
+				'/work/main.o',
+				'/work/alloc.o',
+				'/rustlib/libstd.rlib',
+				'/rustlib/extra.a',
+				'/work/main.wasm'
+			])
+		);
+	});
+
+	it('reuses cached runtime link assets across repeated linker runs', async () => {
+		const { manifest, target } = createNormalizedTarget();
+		let fetchCount = 0;
+		const modules = createFakeLlvmModules();
+
+		const fetchImpl = async (assetUrl: string | URL | Request) => {
+			fetchCount += 1;
+			return new Response(new Uint8Array([String(assetUrl).length % 255]));
+		};
+
+		await linkBitcodeWithLlvmWasm(
+			new Uint8Array([1, 2, 3]),
+			manifest,
+			target,
+			'https://example.test/runtime/',
+			{
+				importRuntimeModule: modules.importRuntimeModule,
+				fetchImpl
+			}
+		);
+		await linkBitcodeWithLlvmWasm(
+			new Uint8Array([4, 5, 6]),
+			manifest,
+			target,
+			'https://example.test/runtime/',
+			{
+				importRuntimeModule: modules.importRuntimeModule,
+				fetchImpl
+			}
+		);
+
+		expect(fetchCount).toBe(3);
+	});
+});
