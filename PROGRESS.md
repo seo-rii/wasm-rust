@@ -7,6 +7,11 @@ This file records the current checked-in state only. Historical investigation de
 
 - `wasm-rust` now uses the real-rustc split browser pipeline in `src/`.
 - The standalone Chromium harness succeeds end to end without `wasm-idle`.
+- The shipped browser runtime is target-aware through `runtime-manifest.v2.json`.
+  - `wasm32-wasip1` returns a preview1 core wasm artifact.
+  - `wasm32-wasip2` returns a preview2 component artifact.
+  - `wasm32-wasip3` currently uses the same transitional preview2-style component runtime when the
+    bundle was prepared from the patched custom toolchain.
 - `wasm-idle` now consumes the returned Rust artifact through `browser_wasi_shim` on its Rust worker
   path instead of the generic `App` host.
 - The shipped module returns a runnable WASI `wasm` artifact through the browser compiler contract.
@@ -14,11 +19,15 @@ This file records the current checked-in state only. Historical investigation de
   wrappers so deployed pages with stricter CSP do not fail at browser worker bootstrap.
 - Browser retries are now surfaced as visible warnings with the retry reason instead of only debug
   transitions into attempts `2/5`, `3/5`, and so on.
+- Browser helper-thread startup is now handshake-based and the packaged `rustc.wasm` host injects
+  `RUST_MIN_STACK=8388608` plus current required `env` shims, which materially improved helper
+  startup stability.
 - `dist/` is the distributable output:
   - `dist/index.js`
   - `dist/compiler-worker.js`
   - `dist/rustc-thread-worker.js`
   - `dist/runtime/runtime-manifest.json`
+  - `dist/runtime/runtime-manifest.v2.json`
 
 ## Last verified results
 
@@ -26,23 +35,32 @@ Validated command:
 
 ```bash
 cd /home/seorii/dev/hancomac/wasm-rust
-pnpm run validate:standalone-browser
+pnpm exec vitest run test/compiler-retry.test.ts test/rustc-runtime.test.ts test/thread-startup.test.ts test/worker-status.test.ts test/browser-harness.test.ts test/fixtures.test.ts test/wasip3-build-pipeline.test.ts
+pnpm exec tsc -p tsconfig.json --noEmit
+WASM_RUST_BROWSER_HARNESS_TARGET_TRIPLES=wasm32-wasip3 node ./scripts/probe-browser-harness.mjs
 ```
 
 Latest verified outcome:
 
-- `build` passed
-- targeted `vitest` and real-browser regressions passed
-- Playwright Chromium harness probe passed
-- Vitest real-browser harness passed
-- direct Playwright integration test passed
-- final browser result:
-  - `compile.success: true`
-  - `compile.hasWasm: true`
-  - `runtime.exitCode: 0`
-  - `runtime.stdout: "hi\n"`
-- the linked `wasm-idle` localhost route also succeeded with line-based stdin on Enter alone for the
-  default Rust sample and without requiring EOF
+- targeted `vitest` coverage passed
+- `tsc --noEmit` passed
+- standalone Chromium harness probe passed for transitional `wasm32-wasip3`
+- final browser probe results included:
+  - `wasm32-wasip1`
+    - `compile.success: true`
+    - `runtime.exitCode: 0`
+    - `runtime.stdout: "hi\n"`
+  - richer `wasm32-wasip2`
+    - `compile.success: true`
+    - `runtime.exitCode: 0`
+    - `runtime.stdout` contains `preview2_component=preview2-cli`
+    - `runtime.stdout` contains `factorial_plus_bonus=27`
+  - transitional `wasm32-wasip3`
+    - `compile.success: true`
+    - `runtime.exitCode: 0`
+    - `runtime.stdout: "hi\n"`
+- the linked `wasm-idle` localhost route also succeeded for every shipped Rust target in its synced
+  manifest, including `wasm32-wasip3`
 
 ## Known limitation
 
@@ -56,12 +74,16 @@ Current product behavior:
 - the compiler retries transient failures up to `5` attempts
 - mirrored `.no-opt.bc` recovery plus `llvm-wasm` linking is what makes the standalone browser path
   reliable enough today
+- `wasm32-wasip3` is still a transitional browser target
+  - toolchain and packaging work with the patched custom Rust build
+  - browser execution still assumes WASIp2-style browser imports
 
 ## Next decision
 
-- Decide whether the current retry-based stabilization is acceptable as the long-term `wasm-idle`
-  integration story.
-- If not, keep reducing the underlying browser-rustc LLVM-worker failure rate.
+- Decide whether the current transitional `wasm32-wasip3` runtime is acceptable until a browser-safe
+  preview3 shim exists.
+- Keep reducing the underlying browser-rustc helper/LLVM-worker failure rate so fewer compiles need
+  mirrored-bitcode recovery.
 
 ## Related docs
 
