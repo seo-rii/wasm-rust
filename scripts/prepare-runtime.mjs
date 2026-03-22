@@ -39,7 +39,7 @@ const llvmWasmRoot =
 const configuredWasiSdkRoot =
 	process.env.WASM_RUST_WASI_SDK_ROOT || process.env.WASI_SDK_PATH || '';
 const configuredTargetTriples = parseTargetTripleList(
-	process.env.WASM_RUST_RUNTIME_TARGET_TRIPLES || 'wasm32-wasip1,wasm32-wasip2',
+	process.env.WASM_RUST_RUNTIME_TARGET_TRIPLES || 'wasm32-wasip1,wasm32-wasip2,wasm32-wasip3',
 	'WASM_RUST_RUNTIME_TARGET_TRIPLES'
 );
 const defaultTargetTriple = parseTargetTriple(

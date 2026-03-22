@@ -102,6 +102,13 @@ async function hasCompatibleWasiSdk() {
 	return false;
 }
 
+async function hasTargetSysroot(targetTriple: string) {
+	const rustcRoot =
+		process.env.WASM_RUST_RUSTC_ROOT ||
+		'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir';
+	return pathExists(path.join(rustcRoot, 'lib', 'rustlib', targetTriple, 'lib'));
+}
+
 builtBrowserBundle('built browser bundle', () => {
 	it('derives runtime build paths from the current checkout instead of a machine-local absolute path', () => {
 		expect(prepareRuntimeProjectRoot).toBe(projectRoot);
@@ -198,6 +205,10 @@ builtBrowserBundle('built browser bundle', () => {
 		if (await hasCompatibleWasiSdk()) {
 			expect(v3Manifest.targets['wasm32-wasip2']?.artifactFormat).toBe('component');
 			expect(v3Manifest.targets['wasm32-wasip2']?.execution.kind).toBe('preview2-component');
+		}
+		if ((await hasCompatibleWasiSdk()) && (await hasTargetSysroot('wasm32-wasip3'))) {
+			expect(v3Manifest.targets['wasm32-wasip3']?.artifactFormat).toBe('component');
+			expect(v3Manifest.targets['wasm32-wasip3']?.execution.kind).toBe('preview2-component');
 		}
 		if (v3Manifest.targets['wasm32-wasip3']) {
 			expect(v3Manifest.targets['wasm32-wasip3'].artifactFormat).toBe('component');
