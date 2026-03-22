@@ -25,6 +25,14 @@ async function listFiles(rootPath: string): Promise<string[]> {
 	return files.sort();
 }
 
+async function measureTotalBytes(filePaths: string[]) {
+	let total = 0;
+	for (const filePath of filePaths) {
+		total += (await fs.stat(filePath)).size;
+	}
+	return total;
+}
+
 builtBrowserBundle('built browser bundle', () => {
 	it('does not leave bare package imports in shipped browser entrypoints', async () => {
 		const files = (await listFiles(distRoot)).filter((filePath) => filePath.endsWith('.js'));
@@ -165,5 +173,52 @@ builtBrowserBundle('built browser bundle', () => {
 		const runtimeFiles = await listFiles(path.join(distRoot, 'runtime'));
 		expect(runtimeFiles.some((filePath) => filePath.includes('/x86_64-unknown-linux-gnu/'))).toBe(false);
 		expect(runtimeFiles.some((filePath) => filePath.endsWith('.old'))).toBe(false);
+	});
+
+	it('stays within runtime byte and request budgets for each packaged target', async () => {
+		const runtimeRoot = path.join(distRoot, 'runtime');
+		const manifest = JSON.parse(
+			await fs.readFile(path.join(runtimeRoot, 'runtime-manifest.v2.json'), 'utf8')
+		) as {
+			targets: Record<
+				string,
+				{
+					sysrootFiles: Array<{
+						asset: string;
+					}>;
+					compile: {
+						link: {
+							allocatorObjectAsset: string;
+							files: Array<{
+								asset: string;
+							}>;
+						};
+					};
+				}
+			>;
+		};
+		const targetTriples = Object.keys(manifest.targets);
+		const runtimeFiles = await listFiles(runtimeRoot);
+		const runtimeBytes = await measureTotalBytes(runtimeFiles);
+
+		expect(runtimeFiles.length).toBeLessThanOrEqual(8 + targetTriples.length * 40);
+		expect(runtimeBytes).toBeLessThanOrEqual(340_000_000 + targetTriples.length * 90_000_000);
+
+		for (const [targetTriple, targetConfig] of Object.entries(manifest.targets)) {
+			const assetPaths = new Set<string>();
+			for (const entry of targetConfig.sysrootFiles) {
+				assetPaths.add(entry.asset);
+			}
+			assetPaths.add(targetConfig.compile.link.allocatorObjectAsset);
+			for (const entry of targetConfig.compile.link.files) {
+				assetPaths.add(entry.asset);
+			}
+			const assetBytes = await measureTotalBytes(
+				[...assetPaths].map((assetPath) => path.join(runtimeRoot, assetPath))
+			);
+
+			expect(assetPaths.size, `${targetTriple} request budget`).toBeLessThanOrEqual(40);
+			expect(assetBytes, `${targetTriple} byte budget`).toBeLessThanOrEqual(90_000_000);
+		}
 	});
 });

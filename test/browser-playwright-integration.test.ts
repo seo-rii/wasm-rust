@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright-core';
 import { describe, expect, it } from 'vitest';
@@ -12,7 +13,7 @@ const runTimeoutMs = Number(
 	process.env.WASM_RUST_BROWSER_HARNESS_RUN_TIMEOUT_MS || String(120000 + 120000)
 );
 const chromiumExecutable = process.env.WASM_RUST_CHROMIUM_EXECUTABLE;
-const projectRoot = '/home/seorii/dev/hancomac/wasm-rust';
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function resolveChromiumExecutable() {
 	if (chromiumExecutable) {

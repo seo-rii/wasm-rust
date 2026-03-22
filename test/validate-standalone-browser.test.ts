@@ -80,11 +80,7 @@ describe('validate:standalone-browser script', () => {
 			expect(run.error).toBeNull();
 			expect(run.calls).toEqual([
 				{
-					args: ['build'],
-					browserHarnessEnv: null
-				},
-				{
-					args: ['test'],
+					args: ['run', 'test:ci:fast'],
 					browserHarnessEnv: null
 				},
 				{
@@ -112,11 +108,7 @@ describe('validate:standalone-browser script', () => {
 			expect(run.error).toBeTruthy();
 			expect(run.calls).toEqual([
 				{
-					args: ['build'],
-					browserHarnessEnv: null
-				},
-				{
-					args: ['test'],
+					args: ['run', 'test:ci:fast'],
 					browserHarnessEnv: null
 				},
 				{

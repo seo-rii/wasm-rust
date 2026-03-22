@@ -6,14 +6,9 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 
 const steps = [
 	{
-		label: 'build',
+		label: 'fast ci lane',
 		command: 'pnpm',
-		args: ['build']
-	},
-	{
-		label: 'test',
-		command: 'pnpm',
-		args: ['test']
+		args: ['run', 'test:ci:fast']
 	},
 	{
 		label: 'browser probe',

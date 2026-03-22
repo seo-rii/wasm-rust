@@ -3,11 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
-const projectRoot = '/home/seorii/dev/hancomac/wasm-rust';
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function runNode(args: string[], env: NodeJS.ProcessEnv = {}) {
 	const childEnv: NodeJS.ProcessEnv = {

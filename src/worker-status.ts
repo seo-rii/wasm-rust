@@ -57,6 +57,9 @@ export function recordWorkerFailureContext(
 	words: readonly number[]
 ) {
 	const state = new Int32Array(sharedStatusBuffer);
+	if (Atomics.load(state, WORKER_STATUS_STATE_INDEX) === WORKER_STATUS_FAILED) {
+		return;
+	}
 	Atomics.store(
 		state,
 		WORKER_STATUS_PHASE_INDEX,
