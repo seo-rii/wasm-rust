@@ -152,6 +152,113 @@ export function createRuntimeManifestV2(overrides: Record<string, unknown> = {})
 	};
 }
 
+export function createRuntimeManifestV3(overrides: Record<string, unknown> = {}) {
+	return {
+		manifestVersion: 3,
+		version: 'test-runtime-v3',
+		hostTriple: 'x86_64-unknown-linux-gnu',
+		defaultTargetTriple: 'wasm32-wasip1',
+		compiler: {
+			rustcWasm: 'rustc/rustc.wasm',
+			workerBitcodeFile: 'main.main.1ca70c240d7de168-cgu.0.rcgu.no-opt.bc',
+			workerSharedOutputBytes: 1024,
+			compileTimeoutMs: 2_000,
+			artifactIdleMs: 500,
+			rustcMemory: {
+				initialPages: 8,
+				maximumPages: 16
+			}
+		},
+		targets: {
+			'wasm32-wasip1': {
+				artifactFormat: 'core-wasm',
+				sysrootPack: {
+					asset: 'packs/sysroot/wasm32-wasip1.pack',
+					index: 'packs/sysroot/wasm32-wasip1.index.json',
+					fileCount: 1,
+					totalBytes: 3
+				},
+				compile: {
+					kind: 'llvm-wasm',
+					llvm: {
+						llc: 'llvm/llc.js',
+						lld: 'llvm/lld.js'
+					},
+					link: {
+						args: ['-o', '/work/main.wasm'],
+						pack: {
+							asset: 'packs/link/wasm32-wasip1.pack',
+							index: 'packs/link/wasm32-wasip1.index.json',
+							fileCount: 2,
+							totalBytes: 6
+						}
+					}
+				},
+				execution: {
+					kind: 'preview1'
+				}
+			},
+			'wasm32-wasip2': {
+				artifactFormat: 'component',
+				sysrootPack: {
+					asset: 'packs/sysroot/wasm32-wasip2.pack',
+					index: 'packs/sysroot/wasm32-wasip2.index.json',
+					fileCount: 1,
+					totalBytes: 3
+				},
+				compile: {
+					kind: 'llvm-wasm+component-encoder',
+					llvm: {
+						llc: 'llvm/llc.js',
+						lld: 'llvm/lld.js'
+					},
+					link: {
+						args: ['-o', '/work/main.wasm'],
+						pack: {
+							asset: 'packs/link/wasm32-wasip2.pack',
+							index: 'packs/link/wasm32-wasip2.index.json',
+							fileCount: 2,
+							totalBytes: 6
+						}
+					}
+				},
+				execution: {
+					kind: 'preview2-component'
+				}
+			},
+			'wasm32-wasip3': {
+				artifactFormat: 'component',
+				sysrootPack: {
+					asset: 'packs/sysroot/wasm32-wasip3.pack',
+					index: 'packs/sysroot/wasm32-wasip3.index.json',
+					fileCount: 1,
+					totalBytes: 3
+				},
+				compile: {
+					kind: 'llvm-wasm+component-encoder',
+					llvm: {
+						llc: 'llvm/llc.js',
+						lld: 'llvm/lld.js'
+					},
+					link: {
+						args: ['-o', '/work/main.wasm'],
+						pack: {
+							asset: 'packs/link/wasm32-wasip3.pack',
+							index: 'packs/link/wasm32-wasip3.index.json',
+							fileCount: 2,
+							totalBytes: 6
+						}
+					}
+				},
+				execution: {
+					kind: 'preview2-component'
+				}
+			}
+		},
+		...overrides
+	};
+}
+
 export class FakeWorker {
 	private readonly listeners = new Map<'message' | 'error', Set<(event: any) => void>>();
 	terminated = false;

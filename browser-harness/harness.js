@@ -52,8 +52,10 @@ function updateProgress(progress) {
 
 async function loadHarnessManifest() {
 	if (!manifestDefaultsPromise) {
+		const v3Url = new URL('/dist/runtime/runtime-manifest.v3.json', window.location.href);
 		const v2Url = new URL('/dist/runtime/runtime-manifest.v2.json', window.location.href);
-		manifestDefaultsPromise = loadRuntimeManifest(v2Url)
+		manifestDefaultsPromise = loadRuntimeManifest(v3Url)
+			.catch(() => loadRuntimeManifest(v2Url))
 			.catch(() => loadRuntimeManifest(runtimeManifestUrl))
 			.then((manifest) => normalizeRuntimeManifest(manifest));
 	}

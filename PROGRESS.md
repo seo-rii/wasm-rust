@@ -7,7 +7,7 @@ This file records the current checked-in state only. Historical investigation de
 
 - `wasm-rust` now uses the real-rustc split browser pipeline in `src/`.
 - The standalone Chromium harness succeeds end to end without `wasm-idle`.
-- The shipped browser runtime is target-aware through `runtime-manifest.v2.json`.
+- The shipped browser runtime is target-aware through `runtime-manifest.v3.json`.
   - `wasm32-wasip1` returns a preview1 core wasm artifact.
   - `wasm32-wasip2` returns a preview2 component artifact.
   - `wasm32-wasip3` currently uses the same transitional preview2-style component runtime when the
@@ -23,8 +23,8 @@ This file records the current checked-in state only. Historical investigation de
   separately through `result.logs` instead of being merged into `stdout`.
 - The standalone browser harness now renders a real progress bar from structured progress events
   instead of inferring status from log text alone.
-- Browser linker runtime assets are now prefetched in parallel and cached by asset URL, which cuts
-  redundant `link` fetches without changing the manifest format yet.
+- Browser runtime assets are now shipped as per-target sysroot/link packs with sidecar indexes, so
+  the compiler and linker stop issuing file-per-asset fetch storms.
 - Browser helper-thread startup is now handshake-based and the packaged `rustc.wasm` host injects
   `RUST_MIN_STACK=8388608` plus current required `env` shims, which materially improved helper
   startup stability.
@@ -32,8 +32,7 @@ This file records the current checked-in state only. Historical investigation de
   - `dist/index.js`
   - `dist/compiler-worker.js`
   - `dist/rustc-thread-worker.js`
-  - `dist/runtime/runtime-manifest.json`
-  - `dist/runtime/runtime-manifest.v2.json`
+  - `dist/runtime/runtime-manifest.v3.json`
 
 ## Last verified results
 

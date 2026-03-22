@@ -132,4 +132,4 @@ if [[ $run_probe -eq 1 ]]; then
 fi
 
 printf '[wasm-rust] wasm32-wasip2 runtime bundle is ready\n'
-printf '[wasm-rust] check dist/runtime/runtime-manifest.v2.json for targets[\"wasm32-wasip2\"]\n'
+printf '[wasm-rust] check dist/runtime/runtime-manifest.v3.json for targets[\"wasm32-wasip2\"]\n'

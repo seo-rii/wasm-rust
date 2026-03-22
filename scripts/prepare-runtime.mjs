@@ -3,6 +3,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 
+import { writeRuntimePack } from './runtime-pack.mjs';
+
 const projectRoot = '/home/seorii/dev/hancomac/wasm-rust';
 const distRoot = path.join(projectRoot, 'dist');
 const runtimeRoot = path.join(distRoot, 'runtime');
@@ -54,7 +56,7 @@ const rustcMemoryInitialPages = Number(
 );
 const rustcMemoryMaximumPages = Number(process.env.WASM_RUST_RUSTC_MEMORY_MAXIMUM_PAGES || '65536');
 const runtimeVersion =
-	process.env.WASM_RUST_RUNTIME_VERSION || 'rust-1.79.0-dev-browser-split-v2';
+	process.env.WASM_RUST_RUNTIME_VERSION || 'rust-1.79.0-dev-browser-split-v3';
 
 if (!configuredTargetTriples.includes(defaultTargetTriple)) {
 	throw new Error(
@@ -709,10 +711,13 @@ async function buildLinkManifest({
 	}
 	sanitizedLinkArgs[outputIndex + 1] = '/work/main.wasm';
 
-	const dedupedFiles = [];
-	const dedupedAssetCopies = [];
+	const dedupedPackEntries = [
+		{
+			runtimePath: '/work/alloc.o',
+			sourcePath: allocatorObjectPath
+		}
+	];
 	const seenRuntimePaths = new Set();
-	const seenAssets = new Set();
 	for (const entry of linkedAssets) {
 		if (!entry.runtimePath || entry.runtimePath === '/work/alloc.o') {
 			continue;
@@ -721,47 +726,33 @@ async function buildLinkManifest({
 			continue;
 		}
 		seenRuntimePaths.add(entry.runtimePath);
-		dedupedFiles.push({
-			asset: entry.asset,
-			runtimePath: entry.runtimePath
+		dedupedPackEntries.push({
+			runtimePath: entry.runtimePath,
+			sourcePath: entry.sourcePath
 		});
-		if (!seenAssets.has(entry.asset)) {
-			seenAssets.add(entry.asset);
-			dedupedAssetCopies.push({
-				asset: entry.asset,
-				sourcePath: entry.sourcePath
-			});
-		}
 	}
 
 	return {
-		allocatorObjectRuntimePath: '/work/alloc.o',
-		allocatorObjectAsset,
 		args: sanitizedLinkArgs,
-		files: dedupedFiles,
-		assetCopies: dedupedAssetCopies
+		packEntries: dedupedPackEntries
 	};
 }
 
-function buildLegacyManifest({
-	hostTriple,
-	targetTriple,
-	compiler,
-	targetConfig
+async function buildRuntimePackReference({
+	packAsset,
+	indexAsset,
+	entries
 }) {
+	const index = await writeRuntimePack({
+		packPath: path.join(runtimeRoot, packAsset),
+		indexPath: path.join(runtimeRoot, indexAsset),
+		entries
+	});
 	return {
-		version: runtimeVersion,
-		hostTriple,
-		targetTriple,
-		rustcWasm: compiler.rustcWasm,
-		workerBitcodeFile: compiler.workerBitcodeFile,
-		workerSharedOutputBytes: compiler.workerSharedOutputBytes,
-		compileTimeoutMs: compiler.compileTimeoutMs,
-		artifactIdleMs: compiler.artifactIdleMs,
-		rustcMemory: compiler.rustcMemory,
-		sysrootFiles: targetConfig.sysrootFiles,
-		llvm: targetConfig.compile.llvm,
-		link: targetConfig.compile.link
+		asset: packAsset,
+		index: indexAsset,
+		fileCount: index.fileCount,
+		totalBytes: index.totalBytes
 	};
 }
 
@@ -780,7 +771,6 @@ async function main() {
 	}
 
 	const sysrootSourceRoot = path.join(wasmRustcRoot, 'lib', 'rustlib');
-	const sysrootTargetRoot = path.join(runtimeRoot, 'sysroot', 'lib', 'rustlib');
 
 	const compiler = {
 		rustcWasm: 'rustc/rustc.wasm',
@@ -830,15 +820,9 @@ async function main() {
 			throw new Error(message);
 		}
 
-		const copiedTargetFiles = await copyTree(
-			targetLibSource,
-			path.join(sysrootTargetRoot, targetTriple, 'lib')
-		);
+		const sysrootFiles = await listFiles(targetLibSource);
 		const { allocatorObjectPath, nativeLinkArgs, tempRoot } = await captureNativeLinkInputs(targetTriple);
-		const allocatorAssetPath = path.join(runtimeRoot, 'link', targetTriple, 'alloc.o');
-		await copyFileIfNeeded(allocatorObjectPath, allocatorAssetPath);
-
-		const { assetCopies, ...link } = await buildLinkManifest({
+		const { args, packEntries } = await buildLinkManifest({
 			nativeLinkArgs,
 			allocatorObjectPath,
 			tempRoot,
@@ -852,23 +836,32 @@ async function main() {
 			targetTriple,
 			wasiSdkSupport
 		});
-		for (const assetCopy of assetCopies) {
-			await copyFileIfNeeded(assetCopy.sourcePath, path.join(runtimeRoot, assetCopy.asset));
-		}
-		const sysrootFiles = copiedTargetFiles.map((filePath) => ({
-			asset: `sysroot/lib/rustlib/${relativeAssetPath(sysrootSourceRoot, filePath)}`,
-			runtimePath: `/lib/rustlib/${relativeAssetPath(sysrootSourceRoot, filePath)}`
-		}));
+		const sysrootPack = await buildRuntimePackReference({
+			packAsset: `packs/sysroot/${targetTriple}.pack`,
+			indexAsset: `packs/sysroot/${targetTriple}.index.json`,
+			entries: sysrootFiles.map((filePath) => ({
+				sourcePath: filePath,
+				runtimePath: `/lib/rustlib/${relativeAssetPath(sysrootSourceRoot, filePath)}`
+			}))
+		});
+		const linkPack = await buildRuntimePackReference({
+			packAsset: `packs/link/${targetTriple}.pack`,
+			indexAsset: `packs/link/${targetTriple}.index.json`,
+			entries: packEntries
+		});
 		targets[targetTriple] = {
 			artifactFormat: profile.artifactFormat,
-			sysrootFiles,
+			sysrootPack,
 			compile: {
 				kind: profile.compileKind,
 				llvm: {
 					llc: 'llvm/llc.js',
 					lld: 'llvm/lld.js'
 				},
-				link
+				link: {
+					args,
+					pack: linkPack
+				}
 			},
 			execution: {
 				kind: profile.executionKind
@@ -876,35 +869,22 @@ async function main() {
 		};
 	}
 
-	if (!targets['wasm32-wasip1']) {
-		throw new Error('legacy runtime-manifest.json requires a packaged wasm32-wasip1 target');
-	}
 	if (!targets[defaultTargetTriple]) {
 		throw new Error(`default target ${defaultTargetTriple} is unavailable after runtime packaging`);
 	}
 
-	const runtimeManifestV2 = {
-		manifestVersion: 2,
+	const runtimeManifestV3 = {
+		manifestVersion: 3,
 		version: runtimeVersion,
 		hostTriple,
 		defaultTargetTriple,
 		compiler,
 		targets
 	};
-	const runtimeManifestV1 = buildLegacyManifest({
-		hostTriple,
-		targetTriple: 'wasm32-wasip1',
-		compiler,
-		targetConfig: targets['wasm32-wasip1']
-	});
 
 	await fs.writeFile(
-		path.join(runtimeRoot, 'runtime-manifest.v2.json'),
-		JSON.stringify(runtimeManifestV2, null, 2) + '\n'
-	);
-	await fs.writeFile(
-		path.join(runtimeRoot, 'runtime-manifest.json'),
-		JSON.stringify(runtimeManifestV1, null, 2) + '\n'
+		path.join(runtimeRoot, 'runtime-manifest.v3.json'),
+		JSON.stringify(runtimeManifestV3, null, 2) + '\n'
 	);
 }
 

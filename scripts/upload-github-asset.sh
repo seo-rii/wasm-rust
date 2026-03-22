@@ -23,7 +23,7 @@ Options:
   -h, --help                Show this help message
 
 Examples:
-  ./scripts/upload-github-asset.sh --tag v0.1.0 ./dist/runtime/runtime-manifest.json
+  ./scripts/upload-github-asset.sh --tag v0.1.0 ./dist/runtime/runtime-manifest.v3.json
   ./scripts/upload-github-asset.sh --tag v0.1.0 --create-release
   ./scripts/upload-github-asset.sh --tag v0.1.0 --build --pack-dist
   ./scripts/upload-github-asset.sh --tag v0.1.0 --create-release --build --pack-dist

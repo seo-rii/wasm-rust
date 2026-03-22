@@ -78,25 +78,10 @@ builtBrowserBundle('built browser bundle', () => {
 		expect(contents).toContain('./vendor/browser_wasi_shim/wasi_defs.js');
 	});
 
-	it('publishes legacy v1 and normalized v2 runtime manifests without directory-only link assets', async () => {
-		const legacyManifest = JSON.parse(
-			await fs.readFile(path.join(distRoot, 'runtime', 'runtime-manifest.json'), 'utf8')
-		) as {
-			targetTriple: string;
-			compileTimeoutMs: number;
-			sysrootFiles: Array<{
-				asset: string;
-				runtimePath: string;
-			}>;
-			link: {
-				files: Array<{
-					asset: string;
-					runtimePath: string;
-				}>;
-			};
-		};
-		const v2Manifest = JSON.parse(
-			await fs.readFile(path.join(distRoot, 'runtime', 'runtime-manifest.v2.json'), 'utf8')
+	it('publishes a pack-aware v3 runtime manifest without exploded sysroot or link trees', async () => {
+		const runtimeRoot = path.join(distRoot, 'runtime');
+		const v3Manifest = JSON.parse(
+			await fs.readFile(path.join(runtimeRoot, 'runtime-manifest.v3.json'), 'utf8')
 		) as {
 			manifestVersion: number;
 			defaultTargetTriple: string;
@@ -107,91 +92,98 @@ builtBrowserBundle('built browser bundle', () => {
 				string,
 				{
 					artifactFormat: string;
-					sysrootFiles: Array<{
+					sysrootPack: {
 						asset: string;
-						runtimePath: string;
-					}>;
+						index: string;
+						fileCount: number;
+						totalBytes: number;
+					};
 					execution: {
 						kind: string;
 					};
 					compile: {
 						link: {
 							args: string[];
-							files: Array<{
+							pack: {
 								asset: string;
-								runtimePath: string;
-							}>;
+								index: string;
+								fileCount: number;
+								totalBytes: number;
+							};
 						};
 					};
 				}
 			>;
 		};
 
-		expect(legacyManifest.targetTriple).toBe('wasm32-wasip1');
-		expect(legacyManifest.compileTimeoutMs).toBe(120_000);
-		expect(
-			legacyManifest.sysrootFiles.every(
-				(entry) => !entry.asset.includes('x86_64-unknown-linux-gnu') && !entry.runtimePath.includes('x86_64-unknown-linux-gnu')
-			)
-		).toBe(true);
-		expect(
-			legacyManifest.sysrootFiles.every(
-				(entry) => !entry.asset.endsWith('.old') && !entry.runtimePath.endsWith('.old')
-			)
-		).toBe(true);
-		expect(v2Manifest.manifestVersion).toBe(2);
-		expect(v2Manifest.defaultTargetTriple).toBe('wasm32-wasip1');
-		expect(v2Manifest.compiler.compileTimeoutMs).toBe(120_000);
-		expect(v2Manifest.targets['wasm32-wasip1']?.artifactFormat).toBe('core-wasm');
-		if (v2Manifest.targets['wasm32-wasip3']) {
-			expect(v2Manifest.targets['wasm32-wasip3'].artifactFormat).toBe('component');
-			expect(v2Manifest.targets['wasm32-wasip3'].execution.kind).toBe('preview2-component');
+		expect(v3Manifest.manifestVersion).toBe(3);
+		expect(v3Manifest.defaultTargetTriple).toBe('wasm32-wasip1');
+		expect(v3Manifest.compiler.compileTimeoutMs).toBe(120_000);
+		expect(v3Manifest.targets['wasm32-wasip1']?.artifactFormat).toBe('core-wasm');
+		if (v3Manifest.targets['wasm32-wasip3']) {
+			expect(v3Manifest.targets['wasm32-wasip3'].artifactFormat).toBe('component');
+			expect(v3Manifest.targets['wasm32-wasip3'].execution.kind).toBe('preview2-component');
 		}
-		for (const [targetTriple, targetConfig] of Object.entries(v2Manifest.targets)) {
-			expect(
-				targetConfig.compile.link.files.some(
-					(entry) =>
-						entry.asset.endsWith('/self-contained') || entry.runtimePath.endsWith('/self-contained')
-				)
-			).toBe(false);
+		await expect(fs.access(path.join(runtimeRoot, 'runtime-manifest.v2.json'))).rejects.toThrow();
+		await expect(fs.access(path.join(runtimeRoot, 'runtime-manifest.json'))).rejects.toThrow();
+		for (const [targetTriple, targetConfig] of Object.entries(v3Manifest.targets)) {
 			expect(targetConfig.compile.link.args.some((entry) => entry.startsWith('/tmp/'))).toBe(false);
+			expect(targetConfig.sysrootPack.asset).toBe(`packs/sysroot/${targetTriple}.pack`);
+			expect(targetConfig.sysrootPack.index).toBe(`packs/sysroot/${targetTriple}.index.json`);
+			expect(targetConfig.compile.link.pack.asset).toBe(`packs/link/${targetTriple}.pack`);
+			expect(targetConfig.compile.link.pack.index).toBe(`packs/link/${targetTriple}.index.json`);
+			for (const assetPath of [
+				targetConfig.sysrootPack.asset,
+				targetConfig.sysrootPack.index,
+				targetConfig.compile.link.pack.asset,
+				targetConfig.compile.link.pack.index
+			]) {
+				await expect(fs.access(path.join(runtimeRoot, assetPath))).resolves.toBeUndefined();
+			}
+			const sysrootIndex = JSON.parse(
+				await fs.readFile(path.join(runtimeRoot, targetConfig.sysrootPack.index), 'utf8')
+			) as {
+				fileCount: number;
+				totalBytes: number;
+				entries: Array<{
+					runtimePath: string;
+				}>;
+			};
+			expect(sysrootIndex.fileCount).toBe(targetConfig.sysrootPack.fileCount);
+			expect(sysrootIndex.totalBytes).toBe(targetConfig.sysrootPack.totalBytes);
 			expect(
-				targetConfig.sysrootFiles.every(
+				sysrootIndex.entries.every(
 					(entry) =>
-						entry.asset.includes(`/rustlib/${targetTriple}/`) &&
 						entry.runtimePath.includes(`/rustlib/${targetTriple}/`) &&
-						!entry.asset.endsWith('.old') &&
 						!entry.runtimePath.endsWith('.old')
 				)
 			).toBe(true);
 		}
-		for (const targetConfig of Object.values(v2Manifest.targets)) {
-			for (const entry of targetConfig.compile.link.files) {
-				await expect(fs.access(path.join(distRoot, 'runtime', entry.asset))).resolves.toBeUndefined();
-			}
-		}
-		const runtimeFiles = await listFiles(path.join(distRoot, 'runtime'));
+		const runtimeFiles = await listFiles(runtimeRoot);
 		expect(runtimeFiles.some((filePath) => filePath.includes('/x86_64-unknown-linux-gnu/'))).toBe(false);
 		expect(runtimeFiles.some((filePath) => filePath.endsWith('.old'))).toBe(false);
+		expect(runtimeFiles.some((filePath) => filePath.includes('/sysroot/lib/rustlib/'))).toBe(false);
+		expect(runtimeFiles.some((filePath) => filePath.includes('/runtime/link/'))).toBe(false);
 	});
 
 	it('stays within runtime byte and request budgets for each packaged target', async () => {
 		const runtimeRoot = path.join(distRoot, 'runtime');
 		const manifest = JSON.parse(
-			await fs.readFile(path.join(runtimeRoot, 'runtime-manifest.v2.json'), 'utf8')
+			await fs.readFile(path.join(runtimeRoot, 'runtime-manifest.v3.json'), 'utf8')
 		) as {
 			targets: Record<
 				string,
 				{
-					sysrootFiles: Array<{
-						asset: string;
-					}>;
+					sysrootPack: {
+						fileCount: number;
+						totalBytes: number;
+					};
 					compile: {
 						link: {
-							allocatorObjectAsset: string;
-							files: Array<{
-								asset: string;
-							}>;
+							pack: {
+								fileCount: number;
+								totalBytes: number;
+							};
 						};
 					};
 				}
@@ -201,24 +193,24 @@ builtBrowserBundle('built browser bundle', () => {
 		const runtimeFiles = await listFiles(runtimeRoot);
 		const runtimeBytes = await measureTotalBytes(runtimeFiles);
 
-		expect(runtimeFiles.length).toBeLessThanOrEqual(8 + targetTriples.length * 40);
-		expect(runtimeBytes).toBeLessThanOrEqual(340_000_000 + targetTriples.length * 90_000_000);
+		expect(runtimeFiles.length).toBeLessThanOrEqual(8 + targetTriples.length * 4);
+		expect(runtimeBytes).toBeLessThanOrEqual(340_000_000 + targetTriples.length * 120_000_000);
 
 		for (const [targetTriple, targetConfig] of Object.entries(manifest.targets)) {
-			const assetPaths = new Set<string>();
-			for (const entry of targetConfig.sysrootFiles) {
-				assetPaths.add(entry.asset);
-			}
-			assetPaths.add(targetConfig.compile.link.allocatorObjectAsset);
-			for (const entry of targetConfig.compile.link.files) {
-				assetPaths.add(entry.asset);
-			}
-			const assetBytes = await measureTotalBytes(
-				[...assetPaths].map((assetPath) => path.join(runtimeRoot, assetPath))
-			);
+			const assetBytes = targetConfig.sysrootPack.totalBytes + targetConfig.compile.link.pack.totalBytes;
+			const requestAssets = new Set([
+				`packs/sysroot/${targetTriple}.pack`,
+				`packs/sysroot/${targetTriple}.index.json`,
+				`packs/link/${targetTriple}.pack`,
+				`packs/link/${targetTriple}.index.json`
+			]);
 
-			expect(assetPaths.size, `${targetTriple} request budget`).toBeLessThanOrEqual(40);
-			expect(assetBytes, `${targetTriple} byte budget`).toBeLessThanOrEqual(90_000_000);
+			expect(
+				targetConfig.sysrootPack.fileCount + targetConfig.compile.link.pack.fileCount,
+				`${targetTriple} packed file budget`
+			).toBeLessThanOrEqual(2_500);
+			expect(requestAssets.size, `${targetTriple} request budget`).toBeLessThanOrEqual(4);
+			expect(assetBytes, `${targetTriple} byte budget`).toBeLessThanOrEqual(130_000_000);
 		}
 	});
 });

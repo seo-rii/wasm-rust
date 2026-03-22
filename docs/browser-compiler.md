@@ -49,7 +49,7 @@ The current pipeline is:
 8. `scripts/prepare-runtime.mjs`
    - packages runtime assets into `dist/runtime/`
    - patches the shipped `rustc.wasm` memory maximum
-   - emits both legacy `runtime-manifest.json` and target-aware `runtime-manifest.v2.json`
+   - emits target-aware `runtime-manifest.v3.json` plus per-target sysroot/link packs
    - vendors and rewrites browser-safe `preview2-shim` and `jco` runtime modules
 
 ## Invariants
@@ -69,16 +69,16 @@ These are required for the browser path to work.
   - `RUST_MIN_STACK=8388608` so browser helper threads do not fail before mirroring bitcode
 - The packaged runtime manifest must allow enough wall-clock time for real browser rustc startup.
   - Current packaged compile timeout: `120000ms`
-- Manifest compatibility is intentionally split:
-  - `dist/runtime/runtime-manifest.json` stays as the legacy wasip1-only v1 schema
-  - `dist/runtime/runtime-manifest.v2.json` is the v2-first target-aware schema used by new codepaths
+- New bundles publish `dist/runtime/runtime-manifest.v3.json` first.
+  - the runtime manifest points at per-target sysroot/link packs and compact sidecar indexes
+  - the compiler still falls back to older `v2` and legacy `v1` manifests when consuming an older bundle
 - The mirrored bitcode file must survive:
   - direct rename into `/work/<bitcode>`
   - rename through the root preopen
   - rename after reopening `/work`
-- The browser linker manifest must contain only materialized files.
+- The browser linker pack index must contain only materialized files.
   - `-L` directories stay in link args only.
-  - directory-only entries in `link.files` cause browser fetch failures.
+  - directory-only entries must not appear in the generated pack index.
 - Preview2 packaging requires an external toolchain prerequisite.
   - `wasm32-wasip2` packaging expects `WASM_RUST_WASI_SDK_ROOT` to point at `wasi-sdk >= 22`
   - `bin/wasm-component-ld` must be present there

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { clearLinkAssetCache, linkBitcodeWithLlvmWasm } from '../src/browser-linker.js';
 import { normalizeRuntimeManifest, resolveTargetManifest } from '../src/runtime-manifest.js';
-import { createRuntimeManifest } from './helpers.js';
+import { createRuntimeManifest, createRuntimeManifestV3 } from './helpers.js';
 
 function createFakeLlvmModules() {
 	const llcFiles = new Map<string, Uint8Array>();
@@ -64,7 +64,7 @@ function createNormalizedTarget() {
 	const manifest = normalizeRuntimeManifest(createRuntimeManifest());
 	const target = resolveTargetManifest(manifest);
 	target.compile.link.files = [
-		...target.compile.link.files,
+		...(target.compile.link.files || []),
 		{
 			asset: 'link/extra.a',
 			runtimePath: '/rustlib/extra.a'
@@ -73,6 +73,14 @@ function createNormalizedTarget() {
 	return {
 		manifest,
 		target
+	};
+}
+
+function createNormalizedPackTarget() {
+	const manifest = normalizeRuntimeManifest(createRuntimeManifestV3());
+	return {
+		manifest,
+		target: resolveTargetManifest(manifest)
 	};
 }
 
@@ -87,8 +95,8 @@ describe('browser linker asset loading', () => {
 		const requestedUrls: string[] = [];
 		const pendingResponses = new Map<string, (response: Response) => void>();
 		const expectedUrls = [
-			target.compile.link.allocatorObjectAsset,
-			...target.compile.link.files.map((entry) => entry.asset)
+			target.compile.link.allocatorObjectAsset!,
+			...(target.compile.link.files || []).map((entry) => entry.asset)
 		].map((assetPath) => `https://example.test/runtime/${assetPath}`);
 
 		const linkPromise = linkBitcodeWithLlvmWasm(
@@ -160,5 +168,60 @@ describe('browser linker asset loading', () => {
 		);
 
 		expect(fetchCount).toBe(3);
+	});
+
+	it('loads link assets from a shared runtime pack instead of per-file fetches', async () => {
+		const { manifest, target } = createNormalizedPackTarget();
+		const modules = createFakeLlvmModules();
+		const requestedUrls: string[] = [];
+
+		const artifact = await linkBitcodeWithLlvmWasm(
+			new Uint8Array([1, 2, 3]),
+			manifest,
+			target,
+			'https://example.test/runtime/',
+			{
+				importRuntimeModule: modules.importRuntimeModule,
+				fetchImpl: async (assetUrl) => {
+					requestedUrls.push(String(assetUrl));
+					if (String(assetUrl).endsWith('.index.json')) {
+						return new Response(
+							JSON.stringify({
+								format: 'wasm-rust-runtime-pack-index-v1',
+								fileCount: 2,
+								totalBytes: 6,
+								entries: [
+									{
+										runtimePath: '/rustlib/libstd.rlib',
+										offset: 0,
+										length: 4
+									},
+									{
+										runtimePath: '/work/alloc.o',
+										offset: 4,
+										length: 2
+									}
+								]
+							})
+						);
+					}
+					return new Response(new Uint8Array([9, 8, 7, 6, 5, 4]));
+				}
+			}
+		);
+
+		expect(artifact.format).toBe('core-wasm');
+		expect(requestedUrls.sort()).toEqual([
+			'https://example.test/runtime/packs/link/wasm32-wasip1.index.json',
+			'https://example.test/runtime/packs/link/wasm32-wasip1.pack'
+		]);
+		expect([...modules.writtenPaths.keys()]).toEqual(
+			expect.arrayContaining([
+				'/work/main.o',
+				'/work/alloc.o',
+				'/rustlib/libstd.rlib',
+				'/work/main.wasm'
+			])
+		);
 	});
 });

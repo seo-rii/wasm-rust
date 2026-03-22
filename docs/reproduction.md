@@ -165,7 +165,7 @@ Upload existing files to an existing GitHub release:
 
 ```bash
 cd /home/seorii/dev/hancomac/wasm-rust
-pnpm run release:upload -- --tag v0.1.0 ./dist/runtime/runtime-manifest.json
+pnpm run release:upload -- --tag v0.1.0 ./dist/runtime/runtime-manifest.v3.json
 ```
 
 Create a release from the latest local commit and tag it:
@@ -194,9 +194,9 @@ Useful flags:
 
 - copying `rustc.wasm`
 - patching the wasm memory maximum
-- copying sysroot assets
+- packing per-target sysroot and link assets
 - copying `llvm-wasm`
-- generating `dist/runtime/runtime-manifest.json`
+- generating `dist/runtime/runtime-manifest.v3.json`
 
 ## Default cache roots
 

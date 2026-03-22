@@ -6,7 +6,7 @@ import {
 	parseRuntimeManifest,
 	resolveTargetManifest
 } from '../src/runtime-manifest.js';
-import { createRuntimeManifest, createRuntimeManifestV2 } from './helpers.js';
+import { createRuntimeManifest, createRuntimeManifestV2, createRuntimeManifestV3 } from './helpers.js';
 
 describe('runtime manifest edge cases', () => {
 	it('rejects malformed runtime manifest fields', () => {
@@ -65,6 +65,42 @@ describe('runtime manifest edge cases', () => {
 				}
 			})
 		).toThrow(/invalid targets\.wasm32-wasip2\.artifactFormat/);
+	});
+
+	it('rejects malformed v3 pack fields', () => {
+		expect(() =>
+			parseRuntimeManifest({
+				...createRuntimeManifestV3(),
+				targets: {
+					...createRuntimeManifestV3().targets,
+					'wasm32-wasip1': {
+						...createRuntimeManifestV3().targets['wasm32-wasip1'],
+						sysrootPack: {
+							...createRuntimeManifestV3().targets['wasm32-wasip1'].sysrootPack,
+							asset: ''
+						}
+					}
+				}
+			})
+		).toThrow(/invalid targets\.wasm32-wasip1\.sysrootPack\.asset/);
+
+		expect(() =>
+			parseRuntimeManifest({
+				...createRuntimeManifestV3(),
+				targets: {
+					...createRuntimeManifestV3().targets,
+					'wasm32-wasip1': {
+						...createRuntimeManifestV3().targets['wasm32-wasip1'],
+						compile: {
+							...createRuntimeManifestV3().targets['wasm32-wasip1'].compile,
+							link: {
+								args: ['-o', '/work/main.wasm']
+							}
+						}
+					}
+				}
+			})
+		).toThrow(/missing legacy link asset fields/);
 	});
 
 	it('fails to resolve an unavailable target from the normalized manifest', () => {

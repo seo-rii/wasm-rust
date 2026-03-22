@@ -6,6 +6,13 @@ export interface RuntimeAssetFile {
 	runtimePath: string;
 }
 
+export interface RuntimeAssetPackReference {
+	asset: string;
+	index: string;
+	fileCount: number;
+	totalBytes: number;
+}
+
 export interface RuntimeCompilerConfig {
 	rustcWasm: string;
 	workerBitcodeFile: string;
@@ -19,10 +26,11 @@ export interface RuntimeCompilerConfig {
 }
 
 export interface RuntimeLinkConfig {
-	allocatorObjectRuntimePath: string;
-	allocatorObjectAsset: string;
 	args: string[];
-	files: RuntimeAssetFile[];
+	allocatorObjectRuntimePath?: string;
+	allocatorObjectAsset?: string;
+	files?: RuntimeAssetFile[];
+	pack?: RuntimeAssetPackReference;
 }
 
 export interface RuntimeTargetCompileConfig {
@@ -41,7 +49,8 @@ export interface RuntimeTargetExecutionConfig {
 export interface RuntimeTargetConfig {
 	targetTriple: SupportedTargetTriple;
 	artifactFormat: BrowserRustArtifactFormat;
-	sysrootFiles: RuntimeAssetFile[];
+	sysrootFiles?: RuntimeAssetFile[];
+	sysrootPack?: RuntimeAssetPackReference;
 	compile: RuntimeTargetCompileConfig;
 	execution: RuntimeTargetExecutionConfig;
 }
@@ -76,8 +85,17 @@ export interface RuntimeManifestV2 {
 	targets: Partial<Record<SupportedTargetTriple, Omit<RuntimeTargetConfig, 'targetTriple'>>>;
 }
 
+export interface RuntimeManifestV3 {
+	manifestVersion: 3;
+	version: string;
+	hostTriple: string;
+	defaultTargetTriple: SupportedTargetTriple;
+	compiler: RuntimeCompilerConfig;
+	targets: Partial<Record<SupportedTargetTriple, Omit<RuntimeTargetConfig, 'targetTriple'>>>;
+}
+
 export interface NormalizedRuntimeManifest {
-	manifestVersion: 1 | 2;
+	manifestVersion: 1 | 2 | 3;
 	version: string;
 	hostTriple: string;
 	defaultTargetTriple: SupportedTargetTriple;
@@ -85,7 +103,7 @@ export interface NormalizedRuntimeManifest {
 	targets: Partial<Record<SupportedTargetTriple, RuntimeTargetConfig>>;
 }
 
-export type RuntimeManifest = RuntimeManifestV1 | RuntimeManifestV2;
+export type RuntimeManifest = RuntimeManifestV1 | RuntimeManifestV2 | RuntimeManifestV3;
 
 function isNormalizedRuntimeManifest(
 	value: RuntimeManifest | NormalizedRuntimeManifest
@@ -105,6 +123,12 @@ function isRuntimeManifestV2(
 	value: RuntimeManifest | NormalizedRuntimeManifest
 ): value is RuntimeManifestV2 {
 	return 'manifestVersion' in value && value.manifestVersion === 2;
+}
+
+function isRuntimeManifestV3(
+	value: RuntimeManifest | NormalizedRuntimeManifest
+): value is RuntimeManifestV3 {
+	return 'manifestVersion' in value && value.manifestVersion === 3;
 }
 
 function expectObject(value: unknown, label: string): Record<string, unknown> {
@@ -180,6 +204,16 @@ function expectAssetFileArray(value: unknown, label: string): RuntimeAssetFile[]
 	});
 }
 
+function parseRuntimeAssetPack(value: unknown, label: string): RuntimeAssetPackReference {
+	const object = expectObject(value, label);
+	return {
+		asset: expectString(object.asset, `${label}.asset`),
+		index: expectString(object.index, `${label}.index`),
+		fileCount: expectNumber(object.fileCount, `${label}.fileCount`),
+		totalBytes: expectNumber(object.totalBytes, `${label}.totalBytes`)
+	};
+}
+
 function parseRustcMemory(value: unknown, label: string): RuntimeCompilerConfig['rustcMemory'] {
 	const object = expectObject(value, label);
 	return {
@@ -205,14 +239,42 @@ function parseCompilerConfig(value: unknown, label: string): RuntimeCompilerConf
 
 function parseLinkConfig(value: unknown, label: string): RuntimeLinkConfig {
 	const object = expectObject(value, label);
+	const pack = object.pack === undefined ? undefined : parseRuntimeAssetPack(object.pack, `${label}.pack`);
+	const files =
+		object.files === undefined ? undefined : expectAssetFileArray(object.files, `${label}.files`);
+	const allocatorObjectRuntimePath =
+		object.allocatorObjectRuntimePath === undefined
+			? undefined
+			: expectString(object.allocatorObjectRuntimePath, `${label}.allocatorObjectRuntimePath`);
+	const allocatorObjectAsset =
+		object.allocatorObjectAsset === undefined
+			? undefined
+			: expectString(object.allocatorObjectAsset, `${label}.allocatorObjectAsset`);
+	if (!pack && (!allocatorObjectRuntimePath || !allocatorObjectAsset || !files)) {
+		throw new Error(`invalid ${label}: missing legacy link asset fields in wasm-rust runtime manifest`);
+	}
 	return {
-		allocatorObjectRuntimePath: expectString(
-			object.allocatorObjectRuntimePath,
-			`${label}.allocatorObjectRuntimePath`
-		),
-		allocatorObjectAsset: expectString(object.allocatorObjectAsset, `${label}.allocatorObjectAsset`),
 		args: expectStringArray(object.args, `${label}.args`),
-		files: expectAssetFileArray(object.files, `${label}.files`)
+		...(allocatorObjectRuntimePath
+			? {
+					allocatorObjectRuntimePath
+				}
+			: {}),
+		...(allocatorObjectAsset
+			? {
+					allocatorObjectAsset
+				}
+			: {}),
+		...(files
+			? {
+					files
+				}
+			: {}),
+		...(pack
+			? {
+					pack
+				}
+			: {})
 	};
 }
 
@@ -225,10 +287,30 @@ function parseRuntimeTargetConfig(
 	const compile = expectObject(object.compile, `${label}.compile`);
 	const llvm = expectObject(compile.llvm, `${label}.compile.llvm`);
 	const execution = expectObject(object.execution, `${label}.execution`);
+	const sysrootFiles =
+		object.sysrootFiles === undefined
+			? undefined
+			: expectAssetFileArray(object.sysrootFiles, `${label}.sysrootFiles`);
+	const sysrootPack =
+		object.sysrootPack === undefined
+			? undefined
+			: parseRuntimeAssetPack(object.sysrootPack, `${label}.sysrootPack`);
+	if (!sysrootFiles && !sysrootPack) {
+		throw new Error(`invalid ${label}: missing sysroot assets in wasm-rust runtime manifest`);
+	}
 	return {
 		targetTriple,
 		artifactFormat: expectArtifactFormat(object.artifactFormat, `${label}.artifactFormat`),
-		sysrootFiles: expectAssetFileArray(object.sysrootFiles, `${label}.sysrootFiles`),
+		...(sysrootFiles
+			? {
+					sysrootFiles
+				}
+			: {}),
+		...(sysrootPack
+			? {
+					sysrootPack
+				}
+			: {}),
 		compile: {
 			kind: expectCompileKind(compile.kind, `${label}.compile.kind`),
 			llvm: {
@@ -243,36 +325,59 @@ function parseRuntimeTargetConfig(
 	};
 }
 
+function parseVersionedTargets(
+	root: Record<string, unknown>
+): Partial<Record<SupportedTargetTriple, Omit<RuntimeTargetConfig, 'targetTriple'>>> {
+	const targets = expectObject(root.targets, 'targets');
+	const parsedTargets: Partial<Record<SupportedTargetTriple, Omit<RuntimeTargetConfig, 'targetTriple'>>> =
+		{};
+	for (const targetTriple of ['wasm32-wasip1', 'wasm32-wasip2', 'wasm32-wasip3'] as const) {
+		const targetValue = targets[targetTriple];
+		if (targetValue === undefined) {
+			continue;
+		}
+		const parsedTarget = parseRuntimeTargetConfig(targetValue, `targets.${targetTriple}`, targetTriple);
+		parsedTargets[targetTriple] = {
+			artifactFormat: parsedTarget.artifactFormat,
+			...(parsedTarget.sysrootFiles
+				? {
+						sysrootFiles: parsedTarget.sysrootFiles
+					}
+				: {}),
+			...(parsedTarget.sysrootPack
+				? {
+						sysrootPack: parsedTarget.sysrootPack
+					}
+				: {}),
+			compile: parsedTarget.compile,
+			execution: parsedTarget.execution
+		};
+	}
+	return parsedTargets;
+}
+
 export function parseRuntimeManifest(value: unknown): RuntimeManifest {
 	const root = expectObject(value, 'root');
 
+	if (root.manifestVersion === 3) {
+		return {
+			manifestVersion: 3,
+			version: expectString(root.version, 'version'),
+			hostTriple: expectString(root.hostTriple, 'hostTriple'),
+			defaultTargetTriple: expectTargetTriple(root.defaultTargetTriple, 'defaultTargetTriple'),
+			compiler: parseCompilerConfig(root.compiler, 'compiler'),
+			targets: parseVersionedTargets(root)
+		};
+	}
+
 	if (root.manifestVersion === 2) {
-		const targets = expectObject(root.targets, 'targets');
-		const parsedTargets: RuntimeManifestV2['targets'] = {};
-		for (const targetTriple of ['wasm32-wasip1', 'wasm32-wasip2', 'wasm32-wasip3'] as const) {
-			const targetValue = targets[targetTriple];
-			if (targetValue === undefined) {
-				continue;
-			}
-			const parsedTarget = parseRuntimeTargetConfig(
-				targetValue,
-				`targets.${targetTriple}`,
-				targetTriple
-			);
-			parsedTargets[targetTriple] = {
-				artifactFormat: parsedTarget.artifactFormat,
-				sysrootFiles: parsedTarget.sysrootFiles,
-				compile: parsedTarget.compile,
-				execution: parsedTarget.execution
-			};
-		}
 		return {
 			manifestVersion: 2,
 			version: expectString(root.version, 'version'),
 			hostTriple: expectString(root.hostTriple, 'hostTriple'),
 			defaultTargetTriple: expectTargetTriple(root.defaultTargetTriple, 'defaultTargetTriple'),
 			compiler: parseCompilerConfig(root.compiler, 'compiler'),
-			targets: parsedTargets
+			targets: parseVersionedTargets(root)
 		};
 	}
 
@@ -303,7 +408,7 @@ export function normalizeRuntimeManifest(
 		return value;
 	}
 
-	if (isRuntimeManifestV2(value)) {
+	if (isRuntimeManifestV2(value) || isRuntimeManifestV3(value)) {
 		const targets: NormalizedRuntimeManifest['targets'] = {};
 		for (const [targetTriple, targetConfig] of Object.entries(value.targets) as Array<
 			[SupportedTargetTriple, RuntimeManifestV2['targets'][SupportedTargetTriple]]
@@ -314,13 +419,22 @@ export function normalizeRuntimeManifest(
 			targets[targetTriple] = {
 				targetTriple,
 				artifactFormat: targetConfig.artifactFormat,
-				sysrootFiles: targetConfig.sysrootFiles,
+				...(targetConfig.sysrootFiles
+					? {
+							sysrootFiles: targetConfig.sysrootFiles
+						}
+					: {}),
+				...(targetConfig.sysrootPack
+					? {
+							sysrootPack: targetConfig.sysrootPack
+						}
+					: {}),
 				compile: targetConfig.compile,
 				execution: targetConfig.execution
 			};
 		}
 		return {
-			manifestVersion: 2,
+			manifestVersion: value.manifestVersion,
 			version: value.version,
 			hostTriple: value.hostTriple,
 			defaultTargetTriple: value.defaultTargetTriple,

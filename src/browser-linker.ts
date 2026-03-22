@@ -1,5 +1,9 @@
 import { componentizeCoreWasmToPreview2Component } from './browser-component-tools.js';
 import {
+	clearRuntimeAssetPackCache,
+	loadRuntimePackEntries
+} from './runtime-asset-store.js';
+import {
 	resolveRuntimeAssetUrl,
 	type NormalizedRuntimeManifest,
 	type RuntimeTargetConfig
@@ -53,6 +57,7 @@ function formatToolFailure(
 
 export function clearLinkAssetCache() {
 	linkAssetCache.clear();
+	clearRuntimeAssetPackCache();
 }
 
 export async function linkBitcodeWithLlvmWasm(
@@ -186,52 +191,68 @@ export async function linkBitcodeWithLlvmWasm(
 		lld.FS.writeFile(runtimePath, await cachedAsset);
 	};
 
-	const prefetchedAssets = new Map<string, Uint8Array>();
-	const assetPrefetches = new Map<string, Promise<Uint8Array>>();
-	for (const assetPath of [
-		target.compile.link.allocatorObjectAsset,
-		...target.compile.link.files.map((entry) => entry.asset)
-	]) {
-		if (assetPrefetches.has(assetPath)) {
-			continue;
-		}
-		assetPrefetches.set(
-			assetPath,
-			(async () => {
-				const assetUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, assetPath);
-				let cachedAsset = linkAssetCache.get(assetUrl);
-				if (!cachedAsset) {
-					cachedAsset = (async () => {
-						const response = await fetchImpl(assetUrl);
-						if (!response.ok) {
-							throw new Error(
-								`failed to fetch wasm-rust link asset ${assetPath} from ${assetUrl}`
-							);
-						}
-						return new Uint8Array(await response.arrayBuffer());
-					})();
-					linkAssetCache.set(assetUrl, cachedAsset);
-					cachedAsset.catch(() => {
-						if (linkAssetCache.get(assetUrl) === cachedAsset) {
-							linkAssetCache.delete(assetUrl);
-						}
-					});
-				}
-				const bytes = await cachedAsset;
-				prefetchedAssets.set(assetPath, bytes);
-				return bytes;
-			})()
-		);
-	}
-	await Promise.all(assetPrefetches.values());
 	await addFile('/work/main.o', '', mainObject);
-	await addFile(
-		target.compile.link.allocatorObjectRuntimePath,
-		target.compile.link.allocatorObjectAsset,
-		prefetchedAssets.get(target.compile.link.allocatorObjectAsset)
-	);
-	for (const entry of target.compile.link.files) {
-		await addFile(entry.runtimePath, entry.asset, prefetchedAssets.get(entry.asset));
+	if (target.compile.link.pack) {
+		for (const entry of await loadRuntimePackEntries(
+			runtimeBaseUrl,
+			target.compile.link.pack,
+			fetchImpl
+		)) {
+			await addFile(entry.runtimePath, '', entry.bytes);
+		}
+	} else if (
+		target.compile.link.allocatorObjectRuntimePath &&
+		target.compile.link.allocatorObjectAsset &&
+		target.compile.link.files
+	) {
+		const prefetchedAssets = new Map<string, Uint8Array>();
+		const assetPrefetches = new Map<string, Promise<Uint8Array>>();
+		for (const assetPath of [
+			target.compile.link.allocatorObjectAsset,
+			...target.compile.link.files.map((entry) => entry.asset)
+		]) {
+			if (assetPrefetches.has(assetPath)) {
+				continue;
+			}
+			assetPrefetches.set(
+				assetPath,
+				(async () => {
+					const assetUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, assetPath);
+					let cachedAsset = linkAssetCache.get(assetUrl);
+					if (!cachedAsset) {
+						cachedAsset = (async () => {
+							const response = await fetchImpl(assetUrl);
+							if (!response.ok) {
+								throw new Error(
+									`failed to fetch wasm-rust link asset ${assetPath} from ${assetUrl}`
+								);
+							}
+							return new Uint8Array(await response.arrayBuffer());
+						})();
+						linkAssetCache.set(assetUrl, cachedAsset);
+						cachedAsset.catch(() => {
+							if (linkAssetCache.get(assetUrl) === cachedAsset) {
+								linkAssetCache.delete(assetUrl);
+							}
+						});
+					}
+					const bytes = await cachedAsset;
+					prefetchedAssets.set(assetPath, bytes);
+					return bytes;
+				})()
+			);
+		}
+		await Promise.all(assetPrefetches.values());
+		await addFile(
+			target.compile.link.allocatorObjectRuntimePath,
+			target.compile.link.allocatorObjectAsset,
+			prefetchedAssets.get(target.compile.link.allocatorObjectAsset)
+		);
+		for (const entry of target.compile.link.files) {
+			await addFile(entry.runtimePath, entry.asset, prefetchedAssets.get(entry.asset));
+		}
+	} else {
+		throw new Error(`missing link runtime assets for target ${target.targetTriple}`);
 	}
 	try {
 		await lld.callMain([...target.compile.link.args]);

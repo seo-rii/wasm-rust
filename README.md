@@ -243,7 +243,7 @@ Upload one or more release assets with `gh`:
 
 ```bash
 cd /home/seorii/dev/hancomac/wasm-rust
-pnpm run release:upload -- --tag v0.1.0 ./dist/runtime/runtime-manifest.json
+pnpm run release:upload -- --tag v0.1.0 ./dist/runtime/runtime-manifest.v3.json
 ```
 
 Create the release at the latest local commit and tag it:

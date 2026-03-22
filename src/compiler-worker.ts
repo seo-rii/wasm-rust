@@ -14,6 +14,7 @@ import {
 	reserveIdleThreadPoolSlot,
 	THREAD_STARTUP_STATE_INSTANTIATED
 } from './thread-startup.js';
+import { loadRuntimePackEntries } from './runtime-asset-store.js';
 
 const ARCHIVE_MAGIC = new Uint8Array([0x21, 0x3c, 0x61, 0x72, 0x63, 0x68, 0x3e, 0x0a]);
 
@@ -136,48 +137,97 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 	const rustcModule = await WebAssembly.compile(rustcBytes);
 	let fetchedSysrootFiles = 0;
 	let fetchedSysrootBytes = 0;
+	const sysrootAssetTotal =
+		target.sysrootPack?.fileCount || target.sysrootFiles?.length || 0;
 	emitCompileWorkerProgress(request, {
 		stage: 'fetch-sysroot',
 		completed: 0,
-		total: target.sysrootFiles.length,
-		message: `fetching ${target.sysrootFiles.length} sysroot assets`
+		total: sysrootAssetTotal,
+		message: target.sysrootPack
+			? `fetching ${sysrootAssetTotal} sysroot assets from pack`
+			: `fetching ${sysrootAssetTotal} sysroot assets`,
+		...(target.sysrootPack
+			? {
+					bytesTotal: target.sysrootPack.totalBytes
+				}
+			: {})
 	});
-	const sysrootAssets: SharedRuntimeAssetFile[] = await Promise.all(
-		target.sysrootFiles.map(async (entry) => {
-			const assetUrl = resolveVersionedAssetUrl(request.runtimeBaseUrl, entry.asset);
-			const bytes = await fetchRuntimeAssetBytes(
-				assetUrl,
-				`wasm-rust sysroot asset ${entry.asset}`
-			);
-			validateRuntimeAssetBytes(entry.asset, bytes);
-			const sharedBuffer = new SharedArrayBuffer(bytes.byteLength);
-			new Uint8Array(sharedBuffer).set(bytes);
+	let sysrootAssets: SharedRuntimeAssetFile[];
+	if (target.sysrootPack) {
+		const packedEntries = await loadRuntimePackEntries(
+			request.runtimeBaseUrl,
+			target.sysrootPack
+		);
+		sysrootAssets = packedEntries.map((entry) => {
+			validateRuntimeAssetBytes(entry.runtimePath, entry.bytes);
+			const sharedBuffer = new SharedArrayBuffer(entry.bytes.byteLength);
+			new Uint8Array(sharedBuffer).set(entry.bytes);
 			fetchedSysrootFiles += 1;
-			fetchedSysrootBytes += bytes.byteLength;
+			fetchedSysrootBytes += entry.bytes.byteLength;
 			emitCompileWorkerProgress(request, {
 				stage: 'fetch-sysroot',
 				completed: fetchedSysrootFiles,
-				total: target.sysrootFiles.length,
+				total: sysrootAssetTotal,
 				message: `fetched sysroot asset ${entry.runtimePath}`,
-				bytesCompleted: fetchedSysrootBytes
+				bytesCompleted: fetchedSysrootBytes,
+				bytesTotal: target.sysrootPack?.totalBytes
 			});
 			if (
 				request.request.log &&
 				(fetchedSysrootFiles === 1 ||
-					fetchedSysrootFiles === target.sysrootFiles.length ||
+					fetchedSysrootFiles === sysrootAssetTotal ||
 					fetchedSysrootFiles % 100 === 0)
 			) {
 				emitCompileWorkerLog(
 					request,
-					`[wasm-rust:compiler-worker] sysroot fetched ${fetchedSysrootFiles}/${target.sysrootFiles.length}`
+					`[wasm-rust:compiler-worker] sysroot fetched ${fetchedSysrootFiles}/${sysrootAssetTotal} from pack`
 				);
 			}
 			return {
 				runtimePath: entry.runtimePath,
 				buffer: sharedBuffer
 			};
-		})
-	);
+		});
+	} else if (target.sysrootFiles) {
+		sysrootAssets = await Promise.all(
+			target.sysrootFiles.map(async (entry) => {
+				const assetUrl = resolveVersionedAssetUrl(request.runtimeBaseUrl, entry.asset);
+				const bytes = await fetchRuntimeAssetBytes(
+					assetUrl,
+					`wasm-rust sysroot asset ${entry.asset}`
+				);
+				validateRuntimeAssetBytes(entry.asset, bytes);
+				const sharedBuffer = new SharedArrayBuffer(bytes.byteLength);
+				new Uint8Array(sharedBuffer).set(bytes);
+				fetchedSysrootFiles += 1;
+				fetchedSysrootBytes += bytes.byteLength;
+				emitCompileWorkerProgress(request, {
+					stage: 'fetch-sysroot',
+					completed: fetchedSysrootFiles,
+					total: sysrootAssetTotal,
+					message: `fetched sysroot asset ${entry.runtimePath}`,
+					bytesCompleted: fetchedSysrootBytes
+				});
+				if (
+					request.request.log &&
+					(fetchedSysrootFiles === 1 ||
+						fetchedSysrootFiles === sysrootAssetTotal ||
+						fetchedSysrootFiles % 100 === 0)
+				) {
+					emitCompileWorkerLog(
+						request,
+						`[wasm-rust:compiler-worker] sysroot fetched ${fetchedSysrootFiles}/${sysrootAssetTotal}`
+					);
+				}
+				return {
+					runtimePath: entry.runtimePath,
+					buffer: sharedBuffer
+				};
+			})
+		);
+	} else {
+		throw new Error(`missing sysroot assets for target ${target.targetTriple}`);
+	}
 	const memory = new WebAssembly.Memory({
 		initial: request.manifest.compiler.rustcMemory.initialPages,
 		maximum: request.manifest.compiler.rustcMemory.maximumPages,

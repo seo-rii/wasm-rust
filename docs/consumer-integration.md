@@ -43,7 +43,7 @@ Current supported source shape:
 - editions `2021` and `2024`
 - targets `wasm32-wasip1` and `wasm32-wasip2`
 - transitional `wasm32-wasip3` when the shipped runtime bundle actually contains that target in
-  `runtime-manifest.v2.json`
+  `runtime-manifest.v3.json`
 
 ## Browser requirements
 

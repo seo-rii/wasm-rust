@@ -275,12 +275,18 @@ export async function compileRust(
 	let loadedManifest;
 	try {
 		loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
-			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.v2.json')
+			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.v3.json')
 		);
 	} catch {
-		loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
-			resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.json')
-		);
+		try {
+			loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
+				resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.v2.json')
+			);
+		} catch {
+			loadedManifest = await (dependencies.loadManifest || loadRuntimeManifest)(
+				resolveVersionedAssetUrl(runtimeBaseUrl, 'runtime-manifest.json')
+			);
+		}
 	}
 	const manifest = normalizeRuntimeManifest(loadedManifest);
 	let targetConfig;

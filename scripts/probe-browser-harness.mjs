@@ -39,10 +39,23 @@ async function resolveHarnessTargetTriples() {
 		projectRoot,
 		'dist',
 		'runtime',
-		'runtime-manifest.v2.json'
+		'runtime-manifest.v3.json'
 	);
 	try {
 		const manifest = JSON.parse(await fs.readFile(runtimeManifestV2Path, 'utf8'));
+		const targets = Object.keys(manifest.targets || {});
+		if (targets.length > 0) {
+			return targets;
+		}
+	} catch {}
+	const runtimeManifestV2FallbackPath = path.join(
+		projectRoot,
+		'dist',
+		'runtime',
+		'runtime-manifest.v2.json'
+	);
+	try {
+		const manifest = JSON.parse(await fs.readFile(runtimeManifestV2FallbackPath, 'utf8'));
 		const targets = Object.keys(manifest.targets || {});
 		if (targets.length > 0) {
 			return targets;
