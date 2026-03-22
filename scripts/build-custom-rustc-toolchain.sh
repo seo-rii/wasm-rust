@@ -240,8 +240,26 @@ if [[ "$PRUNE_INCREMENTAL" != "0" && "$PRUNE_INCREMENTAL" != "false" && -d "$RUS
     "$RUST_ROOT/build" >> "$LOG"
 fi
 
-if [[ -z "$BUILD_HOST_TARGET" ]] && command -v rustc >/dev/null 2>&1; then
-  BUILD_HOST_TARGET="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p')"
+if [[ -z "$BUILD_HOST_TARGET" ]]; then
+  if command -v rustc >/dev/null 2>&1; then
+    detected_build_host_target="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p' || true)"
+    if [[ -n "$detected_build_host_target" ]]; then
+      BUILD_HOST_TARGET="$detected_build_host_target"
+    fi
+  fi
+  if [[ -z "$BUILD_HOST_TARGET" ]]; then
+    detected_build_arch="$(uname -m 2>/dev/null || true)"
+    detected_build_os="$(uname -s 2>/dev/null || true)"
+    if [[ "$detected_build_arch" == "x86_64" && "$detected_build_os" == "Linux" ]]; then
+      BUILD_HOST_TARGET="x86_64-unknown-linux-gnu"
+    elif [[ "$detected_build_arch" == "aarch64" && "$detected_build_os" == "Linux" ]]; then
+      BUILD_HOST_TARGET="aarch64-unknown-linux-gnu"
+    elif [[ "$detected_build_arch" == "arm64" && "$detected_build_os" == "Darwin" ]]; then
+      BUILD_HOST_TARGET="aarch64-apple-darwin"
+    elif [[ "$detected_build_arch" == "x86_64" && "$detected_build_os" == "Darwin" ]]; then
+      BUILD_HOST_TARGET="x86_64-apple-darwin"
+    fi
+  fi
 fi
 
 if [[ -n "$BUILD_HOST_TARGET" ]]; then
