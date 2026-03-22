@@ -134,6 +134,7 @@ fi
 status=0
 effective_config_path="$CONFIG_PATH"
 force_stage1_cleanup=0
+force_stage2_cleanup=0
 use_threaded_host_env_flags=1
 
 wasi_sdk_root="${WASM_RUST_WASI_SDK_ROOT:-${WASI_SDK_PATH:-}}"
@@ -337,7 +338,7 @@ cc = "$wasi_sdk_root/bin/clang"
 cxx = "$wasi_sdk_root/bin/clang++"
 ar = "$wasi_sdk_root/bin/llvm-ar"
 ranlib = "$wasi_sdk_root/bin/llvm-ranlib"
-codegen-backends = ["cranelift", "llvm"]
+codegen-backends = ["llvm"]
 
 [target.'wasm32-wasip2']
 wasi-root = "$wasi_sdk_root/share/wasi-sysroot"
@@ -350,6 +351,38 @@ ranlib = "$wasi_sdk_root/bin/llvm-ranlib"
 [target.'x86_64-unknown-linux-gnu']
 cc = "${CC:-/usr/bin/gcc}"
 EOF
+fi
+
+if [[ -f "$EFFECTIVE_CONFIG_PATH" && "$COMPILER_HOST_TARGET" == "wasm32-wasip1-threads" ]]; then
+  original_effective_config="$(cat "$EFFECTIVE_CONFIG_PATH")"
+  normalized_effective_config="$(
+    COMPILER_HOST_TARGET="$COMPILER_HOST_TARGET" awk '
+      BEGIN {
+        in_host_target = 0
+      }
+      $0 == "[target.\047" ENVIRON["COMPILER_HOST_TARGET"] "\047]" {
+        in_host_target = 1
+        print
+        next
+      }
+      in_host_target && /^\[target\./ {
+        in_host_target = 0
+      }
+      in_host_target && /^[[:space:]]*codegen-backends[[:space:]]*=/ {
+        print "codegen-backends = [\"llvm\"]"
+        next
+      }
+      {
+        print
+      }
+    ' "$EFFECTIVE_CONFIG_PATH"
+  )"
+  if [[ "$normalized_effective_config" != "$original_effective_config" ]]; then
+    printf '%s' "$normalized_effective_config" > "$EFFECTIVE_CONFIG_PATH"
+    force_stage2_cleanup=1
+    printf '[%s] build-custom-rustc-toolchain: normalized %s host target codegen-backends to ["llvm"] in %s so browser rustc keeps wasm32-wasip2/wasm32-wasip3 on the LLVM backend\n' \
+      "$(date -Is)" "$COMPILER_HOST_TARGET" "$EFFECTIVE_CONFIG_PATH" >> "$LOG"
+  fi
 fi
 
 install_targets_toml=""
@@ -394,6 +427,28 @@ if [[ -f "$effective_config_path" ]]; then
     else
       install_prefix_path="$RUST_ROOT/$install_prefix_value"
     fi
+  fi
+fi
+
+if [[ "$force_stage2_cleanup" -eq 1 ]]; then
+  compiler_host_stage_root="$RUST_ROOT/build/$COMPILER_HOST_TARGET"
+  stale_stage2_paths=()
+  for stale_stage2_dir in stage2 stage2-rustc stage2-std stage2-tools-bin; do
+    if [[ -e "$compiler_host_stage_root/$stale_stage2_dir" ]]; then
+      stale_stage2_paths+=("$compiler_host_stage_root/$stale_stage2_dir")
+    fi
+  done
+  if [[ "${#stale_stage2_paths[@]}" -gt 0 ]]; then
+    rm -rf "${stale_stage2_paths[@]}"
+    printf '[%s] build-custom-rustc-toolchain: removed %s stale stage2 path%s under %s because the browser host target backend config changed\n' \
+      "$(date -Is)" "${#stale_stage2_paths[@]}" \
+      "$([[ "${#stale_stage2_paths[@]}" -eq 1 ]] && printf '' || printf 's')" \
+      "$compiler_host_stage_root" >> "$LOG"
+  fi
+  if [[ -n "$install_prefix_path" && -f "$install_prefix_path/bin/rustc.wasm" ]]; then
+    rm -f "$install_prefix_path/bin/rustc.wasm"
+    printf '[%s] build-custom-rustc-toolchain: removed stale installed rustc.wasm at %s because the browser host target backend config changed\n' \
+      "$(date -Is)" "$install_prefix_path/bin/rustc.wasm" >> "$LOG"
   fi
 fi
 

@@ -478,6 +478,79 @@ printf '%s\\n' "\${CXXFLAGS_wasm32_wasip1_threads:-}" > ${JSON.stringify(recorde
 		);
 	});
 
+	it('normalizes the browser host target backend config to llvm and invalidates stale stage2 rustc outputs', async () => {
+		const root = await makeTempDir();
+		const rustRoot = path.join(root, 'rust');
+		const configPath = path.join(rustRoot, 'config.wasm-rust-browser.toml');
+		const recordedConfigPath = path.join(root, 'recorded-config-path.txt');
+		const staleStage2RustcPath = path.join(
+			rustRoot,
+			'build',
+			'wasm32-wasip1-threads',
+			'stage2',
+			'bin',
+			'rustc'
+		);
+		const staleInstalledRustcPath = path.join(rustRoot, 'dist-emit-ir', 'bin', 'rustc.wasm');
+
+		await fs.mkdir(path.dirname(staleStage2RustcPath), { recursive: true });
+		await fs.mkdir(path.dirname(staleInstalledRustcPath), { recursive: true });
+		await fs.writeFile(
+			configPath,
+			`profile = "compiler"
+change-id = 9999999
+
+[rust]
+codegen-backends = ["llvm"]
+
+[build]
+host = ["wasm32-wasip1-threads"]
+target = ["x86_64-unknown-linux-gnu", "wasm32-wasip1", "wasm32-wasip2"]
+
+[install]
+prefix = "dist-emit-ir"
+
+[target.'wasm32-wasip1-threads']
+codegen-backends = ["cranelift", "llvm"]
+`,
+			'utf8'
+		);
+		await fs.writeFile(staleStage2RustcPath, 'stale-stage2-rustc', 'utf8');
+		await fs.writeFile(staleInstalledRustcPath, 'stale-installed-rustc', 'utf8');
+		await fs.writeFile(
+			path.join(rustRoot, 'x.py'),
+			`#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$3" > ${JSON.stringify(recordedConfigPath)}
+exit 0
+`,
+			'utf8'
+		);
+		await fs.chmod(path.join(rustRoot, 'x.py'), 0o755);
+
+		await execFileAsync('bash', ['./scripts/build-custom-rustc-toolchain.sh', '--', '--foreground'], {
+			cwd: projectRoot,
+			env: {
+				...process.env,
+				WASM_RUST_CUSTOM_TOOLCHAIN_ROOT: root,
+				WASM_RUST_RUST_SOURCE_ROOT: rustRoot,
+				WASM_RUST_RUST_CONFIG: configPath,
+				WASM_RUST_INSTALL_TARGETS: 'x86_64-unknown-linux-gnu,wasm32-wasip1,wasm32-wasip2'
+			},
+			maxBuffer: 8 * 1024 * 1024
+		});
+
+		const generatedConfigPath = (await fs.readFile(recordedConfigPath, 'utf8')).trim();
+		await expect(fs.readFile(generatedConfigPath, 'utf8')).resolves.toContain(
+			'codegen-backends = ["llvm"]'
+		);
+		await expect(fs.readFile(generatedConfigPath, 'utf8')).resolves.not.toContain(
+			'codegen-backends = ["cranelift", "llvm"]'
+		);
+		await expect(fs.access(staleStage2RustcPath)).rejects.toThrow();
+		await expect(fs.access(staleInstalledRustcPath)).rejects.toThrow();
+	});
+
 	it('serially prebuilds llvm-cxxfilt before resuming LLVM install when the binary is missing', async () => {
 		const root = await makeTempDir();
 		const rustRoot = path.join(root, 'rust');
