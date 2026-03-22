@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../src/browser-execution.js', () => ({
+	executeBrowserRustArtifact: vi.fn()
+}));
 
 import createRustCompiler, { createRustCompiler as createNamedCompiler } from '../src/index.js';
 import { FakeWorker, createRuntimeManifest, mirrorBitcode } from './helpers.js';
