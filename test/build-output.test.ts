@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,6 +32,63 @@ async function measureTotalBytes(filePaths: string[]) {
 		total += (await fs.stat(filePath)).size;
 	}
 	return total;
+}
+
+async function pathExists(targetPath: string) {
+	try {
+		await fs.access(targetPath);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function collectNestedWasiSdkRoots(baseRoot: string): Promise<string[]> {
+	if (!(await pathExists(baseRoot))) {
+		return [];
+	}
+	const entries = await fs.readdir(baseRoot, { withFileTypes: true });
+	const candidates: string[] = [];
+	for (const entry of entries) {
+		if (!entry.isDirectory()) {
+			continue;
+		}
+		const fullPath = path.join(baseRoot, entry.name);
+		if (entry.name.startsWith('wasi-sdk-')) {
+			candidates.push(fullPath);
+			continue;
+		}
+		if (!entry.name.startsWith('wasm-rust')) {
+			continue;
+		}
+		const nestedEntries = await fs.readdir(fullPath, { withFileTypes: true }).catch(() => []);
+		for (const nestedEntry of nestedEntries) {
+			if (!nestedEntry.isDirectory() || !nestedEntry.name.startsWith('wasi-sdk-')) {
+				continue;
+			}
+			candidates.push(path.join(fullPath, nestedEntry.name));
+		}
+	}
+	return candidates;
+}
+
+async function hasCompatibleWasiSdk() {
+	const configuredRoot = process.env.WASM_RUST_WASI_SDK_ROOT || process.env.WASI_SDK_PATH || '';
+	if (configuredRoot) {
+		return pathExists(path.join(configuredRoot, 'bin', 'wasm-component-ld'));
+	}
+	const rustcRoot =
+		process.env.WASM_RUST_RUSTC_ROOT ||
+		'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir';
+	for (const candidate of [
+		...(await collectNestedWasiSdkRoots(path.dirname(path.dirname(rustcRoot)))),
+		...(await collectNestedWasiSdkRoots(path.join(os.homedir(), '.cache')))
+	]) {
+		if (await pathExists(path.join(candidate, 'bin', 'wasm-component-ld'))) {
+			return true;
+		}
+	}
+	return false;
 }
 
 builtBrowserBundle('built browser bundle', () => {
@@ -120,8 +178,10 @@ builtBrowserBundle('built browser bundle', () => {
 		expect(v3Manifest.defaultTargetTriple).toBe('wasm32-wasip1');
 		expect(v3Manifest.compiler.compileTimeoutMs).toBe(120_000);
 		expect(v3Manifest.targets['wasm32-wasip1']?.artifactFormat).toBe('core-wasm');
-		expect(v3Manifest.targets['wasm32-wasip2']?.artifactFormat).toBe('component');
-		expect(v3Manifest.targets['wasm32-wasip2']?.execution.kind).toBe('preview2-component');
+		if (await hasCompatibleWasiSdk()) {
+			expect(v3Manifest.targets['wasm32-wasip2']?.artifactFormat).toBe('component');
+			expect(v3Manifest.targets['wasm32-wasip2']?.execution.kind).toBe('preview2-component');
+		}
 		if (v3Manifest.targets['wasm32-wasip3']) {
 			expect(v3Manifest.targets['wasm32-wasip3'].artifactFormat).toBe('component');
 			expect(v3Manifest.targets['wasm32-wasip3'].execution.kind).toBe('preview2-component');
