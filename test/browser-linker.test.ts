@@ -19,8 +19,12 @@ function createFakeLlvmModules() {
 	const lldFiles = new Map<string, Uint8Array>();
 	let llcInitOptions: FakeLlvmInitOptions | null = null;
 	let lldInitOptions: FakeLlvmInitOptions | null = null;
+	let llcCallMainGate: Promise<void> | null = null;
 
 	return {
+		blockLlcCallMain(gate: Promise<void>) {
+			llcCallMainGate = gate;
+		},
 		getLlcInitOptions: () => llcInitOptions,
 		getLldInitOptions: () => lldInitOptions,
 		writtenPaths: lldFiles,
@@ -44,6 +48,9 @@ function createFakeLlvmModules() {
 								}
 							},
 							async callMain() {
+								if (llcCallMainGate) {
+									await llcCallMainGate;
+								}
 								llcFiles.set('/work/main.o', new Uint8Array([0xaa, 0xbb, 0xcc]));
 							}
 						};
@@ -112,6 +119,12 @@ describe('browser linker asset loading', () => {
 	it('prefetches link assets in parallel before writing them into lld', async () => {
 		const { manifest, target } = createNormalizedTarget();
 		const modules = createFakeLlvmModules();
+		let releaseLlcCallMain: (() => void) | null = null;
+		modules.blockLlcCallMain(
+			new Promise<void>((resolve) => {
+				releaseLlcCallMain = resolve;
+			})
+		);
 		const requestedUrls: string[] = [];
 		const pendingResponses = new Map<string, (response: Response) => void>();
 		const expectedUrls = [
@@ -149,6 +162,7 @@ describe('browser linker asset loading', () => {
 
 		expect(requestedUrls.sort()).toEqual(expectedUrls.sort());
 
+		releaseLlcCallMain?.();
 		for (const [assetUrl, resolve] of pendingResponses) {
 			resolve(new Response(new Uint8Array(assetUrl.endsWith('alloc.o') ? [1] : [2, 3, 4])));
 		}
