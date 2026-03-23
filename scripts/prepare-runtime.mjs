@@ -114,10 +114,11 @@ function parseRuntimePrecompressionScopes(value, label) {
 	for (const entry of entries) {
 		if (entry === 'all') {
 			scopes.add('rustc');
+			scopes.add('llvm');
 			scopes.add('packs');
 			continue;
 		}
-		if (entry !== 'rustc' && entry !== 'packs') {
+		if (entry !== 'rustc' && entry !== 'llvm' && entry !== 'packs') {
 			throw new Error(`invalid ${label}: ${entry}`);
 		}
 		scopes.add(entry);
@@ -889,10 +890,23 @@ async function main() {
 	await patchRustcMemoryMaximum(rustcTargetPath);
 	const rustcRuntimeAsset = await maybePrecompressRuntimeAsset(rustcTargetPath, 'rustc');
 
-	const llvmFiles = ['llc.js', 'llc.wasm', 'lld.js', 'lld.wasm', 'lld.data'];
-	for (const entry of llvmFiles) {
-		await copyFileIfNeeded(path.join(llvmWasmRoot, entry), path.join(runtimeRoot, 'llvm', entry));
-	}
+	await copyFileIfNeeded(path.join(llvmWasmRoot, 'llc.js'), path.join(runtimeRoot, 'llvm', 'llc.js'));
+	const llcWasmRuntimeAsset = await (async () => {
+		const llcWasmPath = path.join(runtimeRoot, 'llvm', 'llc.wasm');
+		await copyFileIfNeeded(path.join(llvmWasmRoot, 'llc.wasm'), llcWasmPath);
+		return await maybePrecompressRuntimeAsset(llcWasmPath, 'llvm');
+	})();
+	await copyFileIfNeeded(path.join(llvmWasmRoot, 'lld.js'), path.join(runtimeRoot, 'llvm', 'lld.js'));
+	const lldWasmRuntimeAsset = await (async () => {
+		const lldWasmPath = path.join(runtimeRoot, 'llvm', 'lld.wasm');
+		await copyFileIfNeeded(path.join(llvmWasmRoot, 'lld.wasm'), lldWasmPath);
+		return await maybePrecompressRuntimeAsset(lldWasmPath, 'llvm');
+	})();
+	const lldDataRuntimeAsset = await (async () => {
+		const lldDataPath = path.join(runtimeRoot, 'llvm', 'lld.data');
+		await copyFileIfNeeded(path.join(llvmWasmRoot, 'lld.data'), lldDataPath);
+		return await maybePrecompressRuntimeAsset(lldDataPath, 'llvm');
+	})();
 
 	const sysrootSourceRoot = path.join(wasmRustcRoot, 'lib', 'rustlib');
 
@@ -985,7 +999,10 @@ async function main() {
 				kind: profile.compileKind,
 				llvm: {
 					llc: 'llvm/llc.js',
-					lld: 'llvm/lld.js'
+					llcWasm: llcWasmRuntimeAsset,
+					lld: 'llvm/lld.js',
+					lldWasm: lldWasmRuntimeAsset,
+					lldData: lldDataRuntimeAsset
 				},
 				link: {
 					args,

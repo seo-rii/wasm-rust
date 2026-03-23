@@ -69,7 +69,10 @@ export function createRuntimeManifestV2(overrides: Record<string, unknown> = {})
 					kind: 'llvm-wasm',
 					llvm: {
 						llc: 'llvm/llc.js',
-						lld: 'llvm/lld.js'
+						llcWasm: 'llvm/llc.wasm.gz',
+						lld: 'llvm/lld.js',
+						lldWasm: 'llvm/lld.wasm.gz',
+						lldData: 'llvm/lld.data.gz'
 					},
 					link: {
 						allocatorObjectRuntimePath: '/work/alloc.o',
@@ -99,7 +102,10 @@ export function createRuntimeManifestV2(overrides: Record<string, unknown> = {})
 					kind: 'llvm-wasm+component-encoder',
 					llvm: {
 						llc: 'llvm/llc.js',
-						lld: 'llvm/lld.js'
+						llcWasm: 'llvm/llc.wasm.gz',
+						lld: 'llvm/lld.js',
+						lldWasm: 'llvm/lld.wasm.gz',
+						lldData: 'llvm/lld.data.gz'
 					},
 					link: {
 						allocatorObjectRuntimePath: '/work/alloc.o',
@@ -129,7 +135,10 @@ export function createRuntimeManifestV2(overrides: Record<string, unknown> = {})
 					kind: 'llvm-wasm+component-encoder',
 					llvm: {
 						llc: 'llvm/llc.js',
-						lld: 'llvm/lld.js'
+						llcWasm: 'llvm/llc.wasm.gz',
+						lld: 'llvm/lld.js',
+						lldWasm: 'llvm/lld.wasm.gz',
+						lldData: 'llvm/lld.data.gz'
 					},
 					link: {
 						allocatorObjectRuntimePath: '/work/alloc.o',
@@ -182,7 +191,10 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 					kind: 'llvm-wasm',
 					llvm: {
 						llc: 'llvm/llc.js',
-						lld: 'llvm/lld.js'
+						llcWasm: 'llvm/llc.wasm.gz',
+						lld: 'llvm/lld.js',
+						lldWasm: 'llvm/lld.wasm.gz',
+						lldData: 'llvm/lld.data.gz'
 					},
 					link: {
 						args: ['-o', '/work/main.wasm'],
@@ -210,7 +222,10 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 					kind: 'llvm-wasm+component-encoder',
 					llvm: {
 						llc: 'llvm/llc.js',
-						lld: 'llvm/lld.js'
+						llcWasm: 'llvm/llc.wasm.gz',
+						lld: 'llvm/lld.js',
+						lldWasm: 'llvm/lld.wasm.gz',
+						lldData: 'llvm/lld.data.gz'
 					},
 					link: {
 						args: ['-o', '/work/main.wasm'],
@@ -238,7 +253,10 @@ export function createRuntimeManifestV3(overrides: Record<string, unknown> = {})
 					kind: 'llvm-wasm+component-encoder',
 					llvm: {
 						llc: 'llvm/llc.js',
-						lld: 'llvm/lld.js'
+						llcWasm: 'llvm/llc.wasm.gz',
+						lld: 'llvm/lld.js',
+						lldWasm: 'llvm/lld.wasm.gz',
+						lldData: 'llvm/lld.data.gz'
 					},
 					link: {
 						args: ['-o', '/work/main.wasm'],

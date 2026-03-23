@@ -186,6 +186,13 @@ builtBrowserBundle('built browser bundle', () => {
 						kind: string;
 					};
 					compile: {
+						llvm: {
+							llc: string;
+							llcWasm: string;
+							lld: string;
+							lldWasm: string;
+							lldData: string;
+						};
 						link: {
 							args: string[];
 							pack: {
@@ -221,6 +228,11 @@ builtBrowserBundle('built browser bundle', () => {
 		await expect(fs.access(path.join(runtimeRoot, 'runtime-manifest.json'))).rejects.toThrow();
 		for (const [targetTriple, targetConfig] of Object.entries(v3Manifest.targets)) {
 			expect(targetConfig.compile.link.args.some((entry) => entry.startsWith('/tmp/'))).toBe(false);
+			expect(targetConfig.compile.llvm.llc).toBe('llvm/llc.js');
+			expect(targetConfig.compile.llvm.llcWasm).toBe('llvm/llc.wasm.gz');
+			expect(targetConfig.compile.llvm.lld).toBe('llvm/lld.js');
+			expect(targetConfig.compile.llvm.lldWasm).toBe('llvm/lld.wasm.gz');
+			expect(targetConfig.compile.llvm.lldData).toBe('llvm/lld.data.gz');
 			expect(targetConfig.sysrootPack.asset).toBe(`packs/sysroot/${targetTriple}.pack.gz`);
 			expect(targetConfig.sysrootPack.index).toBe(`packs/sysroot/${targetTriple}.index.json.gz`);
 			expect(targetConfig.compile.link.pack.asset).toBe(`packs/link/${targetTriple}.pack.gz`);
@@ -265,6 +277,12 @@ builtBrowserBundle('built browser bundle', () => {
 						!entry.runtimePath.endsWith('.old')
 				)
 			).toBe(true);
+		}
+		for (const assetPath of ['llvm/llc.wasm.gz', 'llvm/lld.wasm.gz', 'llvm/lld.data.gz']) {
+			await expect(fs.access(path.join(runtimeRoot, assetPath))).resolves.toBeUndefined();
+		}
+		for (const assetPath of ['llvm/llc.wasm', 'llvm/lld.wasm', 'llvm/lld.data']) {
+			await expect(fs.access(path.join(runtimeRoot, assetPath))).rejects.toThrow();
 		}
 		const runtimeFiles = await listFiles(runtimeRoot);
 		expect(runtimeFiles.some((filePath) => filePath.includes('/x86_64-unknown-linux-gnu/'))).toBe(false);

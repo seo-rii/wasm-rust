@@ -17,6 +17,7 @@ describe('wasm-rust runtime manifest', () => {
 			'main.main.1ca70c240d7de168-cgu.0.rcgu.no-opt.bc'
 		);
 		expect(manifest.targets['wasm32-wasip1']?.compile.link.args).toContain('/work/main.wasm');
+		expect(manifest.targets['wasm32-wasip1']?.compile.llvm.llcWasm).toBe('llvm/llc.wasm');
 	});
 
 	it('parses and normalizes the v2 manifest shape', () => {
@@ -40,6 +41,7 @@ describe('wasm-rust runtime manifest', () => {
 		expect(manifest.targets['wasm32-wasip2']?.compile.link.pack?.index).toBe(
 			'packs/link/wasm32-wasip2.index.json.gz'
 		);
+		expect(manifest.targets['wasm32-wasip2']?.compile.llvm.lldData).toBe('llvm/lld.data.gz');
 	});
 
 	it('resolves asset URLs relative to the runtime base URL', () => {

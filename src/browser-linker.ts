@@ -74,6 +74,22 @@ export async function linkBitcodeWithLlvmWasm(
 	const fetchImpl = options.fetchImpl || fetch;
 	const componentizeCoreWasm =
 		options.componentizeCoreWasm || componentizeCoreWasmToPreview2Component;
+	const llcWasmAsset = target.compile.llvm.llcWasm || 'llvm/llc.wasm';
+	const llcWasmUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, llcWasmAsset);
+	let cachedLlcWasm = linkAssetCache.get(llcWasmUrl);
+	if (!cachedLlcWasm) {
+		cachedLlcWasm = fetchRuntimeAssetBytes(
+			llcWasmUrl,
+			`wasm-rust llvm asset ${llcWasmAsset}`,
+			fetchImpl
+		);
+		linkAssetCache.set(llcWasmUrl, cachedLlcWasm);
+		cachedLlcWasm.catch(() => {
+			if (linkAssetCache.get(llcWasmUrl) === cachedLlcWasm) {
+				linkAssetCache.delete(llcWasmUrl);
+			}
+		});
+	}
 	options.onProgress?.({
 		stage: 'link',
 		completed: 0,
@@ -83,6 +99,7 @@ export async function linkBitcodeWithLlvmWasm(
 	const { default: Llc } = await loadRuntimeModule<{
 		default: (options: {
 			locateFile(file: string): string;
+			wasmBinary?: Uint8Array;
 			print(text: string): void;
 			printErr(text: string): void;
 		}) => Promise<{
@@ -98,8 +115,12 @@ export async function linkBitcodeWithLlvmWasm(
 	const llcStderr: string[] = [];
 	const llc = await Llc({
 		locateFile(file: string) {
+			if (file === 'llc.wasm') {
+				return llcWasmUrl;
+			}
 			return resolveRuntimeAssetUrl(runtimeBaseUrl, `llvm/${file}`);
 		},
+		wasmBinary: await cachedLlcWasm,
 		print(text: string) {
 			llcStdout.push(String(text));
 		},
@@ -138,10 +159,44 @@ export async function linkBitcodeWithLlvmWasm(
 		total: 2,
 		message: 'running lld link'
 	});
+	const lldWasmAsset = target.compile.llvm.lldWasm || 'llvm/lld.wasm';
+	const lldWasmUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, lldWasmAsset);
+	let cachedLldWasm = linkAssetCache.get(lldWasmUrl);
+	if (!cachedLldWasm) {
+		cachedLldWasm = fetchRuntimeAssetBytes(
+			lldWasmUrl,
+			`wasm-rust llvm asset ${lldWasmAsset}`,
+			fetchImpl
+		);
+		linkAssetCache.set(lldWasmUrl, cachedLldWasm);
+		cachedLldWasm.catch(() => {
+			if (linkAssetCache.get(lldWasmUrl) === cachedLldWasm) {
+				linkAssetCache.delete(lldWasmUrl);
+			}
+		});
+	}
+	const lldDataAsset = target.compile.llvm.lldData || 'llvm/lld.data';
+	const lldDataUrl = resolveRuntimeAssetUrl(runtimeBaseUrl, lldDataAsset);
+	let cachedLldData = linkAssetCache.get(lldDataUrl);
+	if (!cachedLldData) {
+		cachedLldData = fetchRuntimeAssetBytes(
+			lldDataUrl,
+			`wasm-rust llvm asset ${lldDataAsset}`,
+			fetchImpl
+		);
+		linkAssetCache.set(lldDataUrl, cachedLldData);
+		cachedLldData.catch(() => {
+			if (linkAssetCache.get(lldDataUrl) === cachedLldData) {
+				linkAssetCache.delete(lldDataUrl);
+			}
+		});
+	}
 
 	const { default: Lld } = await loadRuntimeModule<{
 		default: (options: {
 			locateFile(file: string): string;
+			wasmBinary?: Uint8Array;
+			getPreloadedPackage?: (packageName: string, packageSize: number) => ArrayBuffer;
 			print(text: string): void;
 			printErr(text: string): void;
 		}) => Promise<{
@@ -155,9 +210,20 @@ export async function linkBitcodeWithLlvmWasm(
 	}>(resolveRuntimeAssetUrl(runtimeBaseUrl, target.compile.llvm.lld));
 	const lldStdout: string[] = [];
 	const lldStderr: string[] = [];
+	const lldDataBytes = await cachedLldData;
 	const lld = await Lld({
 		locateFile(file: string) {
+			if (file === 'lld.wasm') {
+				return lldWasmUrl;
+			}
+			if (file === 'lld.data') {
+				return lldDataUrl;
+			}
 			return resolveRuntimeAssetUrl(runtimeBaseUrl, `llvm/${file}`);
+		},
+		wasmBinary: await cachedLldWasm,
+		getPreloadedPackage() {
+			return new Uint8Array(lldDataBytes).buffer;
 		},
 		print(text: string) {
 			lldStdout.push(String(text));

@@ -6,55 +6,73 @@ import { clearLinkAssetCache, linkBitcodeWithLlvmWasm } from '../src/browser-lin
 import { normalizeRuntimeManifest, resolveTargetManifest } from '../src/runtime-manifest.js';
 import { createRuntimeManifest, createRuntimeManifestV3 } from './helpers.js';
 
+interface FakeLlvmInitOptions {
+	locateFile(file: string): string;
+	wasmBinary?: Uint8Array;
+	getPreloadedPackage?: (packageName: string, packageSize: number) => ArrayBuffer;
+	print(text: string): void;
+	printErr(text: string): void;
+}
+
 function createFakeLlvmModules() {
 	const llcFiles = new Map<string, Uint8Array>();
 	const lldFiles = new Map<string, Uint8Array>();
+	let llcInitOptions: FakeLlvmInitOptions | null = null;
+	let lldInitOptions: FakeLlvmInitOptions | null = null;
 
 	return {
+		getLlcInitOptions: () => llcInitOptions,
+		getLldInitOptions: () => lldInitOptions,
 		writtenPaths: lldFiles,
 		importRuntimeModule: async <T>(assetUrl: string) => {
 			if (assetUrl.endsWith('/llvm/llc.js')) {
 				return {
-					default: async () => ({
-						FS: {
-							mkdir() {},
-							writeFile(filePath: string, contents: Uint8Array) {
-								llcFiles.set(filePath, new Uint8Array(contents));
-							},
-							readFile(filePath: string) {
-								const file = llcFiles.get(filePath);
-								if (!file) {
-									throw new Error(`missing fake llc file ${filePath}`);
+					default: async (options: FakeLlvmInitOptions) => {
+						llcInitOptions = options;
+						return {
+							FS: {
+								mkdir() {},
+								writeFile(filePath: string, contents: Uint8Array) {
+									llcFiles.set(filePath, new Uint8Array(contents));
+								},
+								readFile(filePath: string) {
+									const file = llcFiles.get(filePath);
+									if (!file) {
+										throw new Error(`missing fake llc file ${filePath}`);
+									}
+									return file;
 								}
-								return file;
+							},
+							async callMain() {
+								llcFiles.set('/work/main.o', new Uint8Array([0xaa, 0xbb, 0xcc]));
 							}
-						},
-						async callMain() {
-							llcFiles.set('/work/main.o', new Uint8Array([0xaa, 0xbb, 0xcc]));
-						}
-					})
+						};
+					}
 				} as T;
 			}
 			if (assetUrl.endsWith('/llvm/lld.js')) {
 				return {
-					default: async () => ({
-						FS: {
-							mkdir() {},
-							writeFile(filePath: string, contents: Uint8Array) {
-								lldFiles.set(filePath, new Uint8Array(contents));
-							},
-							readFile(filePath: string) {
-								const file = lldFiles.get(filePath);
-								if (!file) {
-									throw new Error(`missing fake lld file ${filePath}`);
+					default: async (options: FakeLlvmInitOptions) => {
+						lldInitOptions = options;
+						return {
+							FS: {
+								mkdir() {},
+								writeFile(filePath: string, contents: Uint8Array) {
+									lldFiles.set(filePath, new Uint8Array(contents));
+								},
+								readFile(filePath: string) {
+									const file = lldFiles.get(filePath);
+									if (!file) {
+										throw new Error(`missing fake lld file ${filePath}`);
+									}
+									return file;
 								}
-								return file;
+							},
+							async callMain() {
+								lldFiles.set('/work/main.wasm', new Uint8Array([0x00, 0x61, 0x73, 0x6d]));
 							}
-						},
-						async callMain() {
-							lldFiles.set('/work/main.wasm', new Uint8Array([0x00, 0x61, 0x73, 0x6d]));
-						}
-					})
+						};
+					}
 				} as T;
 			}
 			throw new Error(`unexpected runtime module ${assetUrl}`);
@@ -97,6 +115,9 @@ describe('browser linker asset loading', () => {
 		const requestedUrls: string[] = [];
 		const pendingResponses = new Map<string, (response: Response) => void>();
 		const expectedUrls = [
+			'llvm/llc.wasm',
+			'llvm/lld.wasm',
+			'llvm/lld.data',
 			target.compile.link.allocatorObjectAsset!,
 			...(target.compile.link.files || []).map((entry) => entry.asset)
 		].map((assetPath) => `https://example.test/runtime/${assetPath}`);
@@ -108,11 +129,19 @@ describe('browser linker asset loading', () => {
 			'https://example.test/runtime/',
 			{
 				importRuntimeModule: modules.importRuntimeModule,
-				fetchImpl: async (assetUrl) =>
-					await new Promise<Response>((resolve) => {
-						requestedUrls.push(String(assetUrl));
+				fetchImpl: async (assetUrl) => {
+					requestedUrls.push(String(assetUrl));
+					if (
+						String(assetUrl).endsWith('/llvm/llc.wasm') ||
+						String(assetUrl).endsWith('/llvm/lld.wasm') ||
+						String(assetUrl).endsWith('/llvm/lld.data')
+					) {
+						return new Response(new Uint8Array([0x00, 0x61, 0x73, 0x6d]));
+					}
+					return await new Promise<Response>((resolve) => {
 						pendingResponses.set(String(assetUrl), resolve);
-					})
+					});
+				}
 			}
 		);
 
@@ -169,7 +198,7 @@ describe('browser linker asset loading', () => {
 			}
 		);
 
-		expect(fetchCount).toBe(3);
+		expect(fetchCount).toBe(6);
 	});
 
 	it('loads link assets from a shared runtime pack instead of per-file fetches', async () => {
@@ -186,6 +215,15 @@ describe('browser linker asset loading', () => {
 				importRuntimeModule: modules.importRuntimeModule,
 				fetchImpl: async (assetUrl) => {
 					requestedUrls.push(String(assetUrl));
+					if (String(assetUrl).endsWith('/llvm/llc.wasm.gz')) {
+						return new Response(gzipSync(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01])));
+					}
+					if (String(assetUrl).endsWith('/llvm/lld.wasm.gz')) {
+						return new Response(gzipSync(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x02])));
+					}
+					if (String(assetUrl).endsWith('/llvm/lld.data.gz')) {
+						return new Response(gzipSync(new Uint8Array([9, 8, 7])));
+					}
 					if (String(assetUrl).endsWith('.index.json.gz')) {
 						return new Response(
 							gzipSync(
@@ -216,9 +254,22 @@ describe('browser linker asset loading', () => {
 
 		expect(artifact.format).toBe('core-wasm');
 		expect(requestedUrls.sort()).toEqual([
+			'https://example.test/runtime/llvm/llc.wasm.gz',
+			'https://example.test/runtime/llvm/lld.data.gz',
+			'https://example.test/runtime/llvm/lld.wasm.gz',
 			'https://example.test/runtime/packs/link/wasm32-wasip1.index.json.gz',
 			'https://example.test/runtime/packs/link/wasm32-wasip1.pack.gz'
 		]);
+		expect([...((modules.getLlcInitOptions()?.wasmBinary || new Uint8Array()) as Uint8Array)]).toEqual([
+			0x00, 0x61, 0x73, 0x6d, 0x01
+		]);
+		expect(
+			[
+				...new Uint8Array(
+					modules.getLldInitOptions()?.getPreloadedPackage?.('lld.data', 3) || new ArrayBuffer(0)
+				)
+			]
+		).toEqual([9, 8, 7]);
 		expect([...modules.writtenPaths.keys()]).toEqual(
 			expect.arrayContaining([
 				'/work/main.o',

@@ -37,7 +37,10 @@ export interface RuntimeTargetCompileConfig {
 	kind: 'llvm-wasm' | 'llvm-wasm+component-encoder';
 	llvm: {
 		llc: string;
+		llcWasm?: string;
 		lld: string;
+		lldWasm?: string;
+		lldData?: string;
 	};
 	link: RuntimeLinkConfig;
 }
@@ -71,7 +74,10 @@ export interface RuntimeManifestV1 {
 	sysrootFiles: RuntimeAssetFile[];
 	llvm: {
 		llc: string;
+		llcWasm?: string;
 		lld: string;
+		lldWasm?: string;
+		lldData?: string;
 	};
 	link: RuntimeLinkConfig;
 }
@@ -237,6 +243,18 @@ function parseCompilerConfig(value: unknown, label: string): RuntimeCompilerConf
 	};
 }
 
+function normalizeRuntimeLlvmConfig(
+	llvm: RuntimeTargetCompileConfig['llvm']
+): RuntimeTargetCompileConfig['llvm'] {
+	return {
+		llc: llvm.llc,
+		llcWasm: llvm.llcWasm || 'llvm/llc.wasm',
+		lld: llvm.lld,
+		lldWasm: llvm.lldWasm || 'llvm/lld.wasm',
+		lldData: llvm.lldData || 'llvm/lld.data'
+	};
+}
+
 function parseLinkConfig(value: unknown, label: string): RuntimeLinkConfig {
 	const object = expectObject(value, label);
 	const pack = object.pack === undefined ? undefined : parseRuntimeAssetPack(object.pack, `${label}.pack`);
@@ -315,7 +333,22 @@ function parseRuntimeTargetConfig(
 			kind: expectCompileKind(compile.kind, `${label}.compile.kind`),
 			llvm: {
 				llc: expectString(llvm.llc, `${label}.compile.llvm.llc`),
-				lld: expectString(llvm.lld, `${label}.compile.llvm.lld`)
+				...(llvm.llcWasm === undefined
+					? {}
+					: {
+							llcWasm: expectString(llvm.llcWasm, `${label}.compile.llvm.llcWasm`)
+						}),
+				lld: expectString(llvm.lld, `${label}.compile.llvm.lld`),
+				...(llvm.lldWasm === undefined
+					? {}
+					: {
+							lldWasm: expectString(llvm.lldWasm, `${label}.compile.llvm.lldWasm`)
+						}),
+				...(llvm.lldData === undefined
+					? {}
+					: {
+							lldData: expectString(llvm.lldData, `${label}.compile.llvm.lldData`)
+						})
 			},
 			link: parseLinkConfig(compile.link, `${label}.compile.link`)
 		},
@@ -395,7 +428,22 @@ export function parseRuntimeManifest(value: unknown): RuntimeManifest {
 		sysrootFiles: expectAssetFileArray(root.sysrootFiles, 'sysrootFiles'),
 		llvm: {
 			llc: expectString(llvm.llc, 'llvm.llc'),
-			lld: expectString(llvm.lld, 'llvm.lld')
+			...(llvm.llcWasm === undefined
+				? {}
+				: {
+						llcWasm: expectString(llvm.llcWasm, 'llvm.llcWasm')
+					}),
+			lld: expectString(llvm.lld, 'llvm.lld'),
+			...(llvm.lldWasm === undefined
+				? {}
+				: {
+						lldWasm: expectString(llvm.lldWasm, 'llvm.lldWasm')
+					}),
+			...(llvm.lldData === undefined
+				? {}
+				: {
+						lldData: expectString(llvm.lldData, 'llvm.lldData')
+					})
 		},
 		link: parseLinkConfig(root.link, 'link')
 	};
@@ -405,7 +453,25 @@ export function normalizeRuntimeManifest(
 	value: RuntimeManifest | NormalizedRuntimeManifest
 ): NormalizedRuntimeManifest {
 	if (isNormalizedRuntimeManifest(value)) {
-		return value;
+		const targets: NormalizedRuntimeManifest['targets'] = {};
+		for (const [targetTriple, targetConfig] of Object.entries(value.targets) as Array<
+			[SupportedTargetTriple, NormalizedRuntimeManifest['targets'][SupportedTargetTriple]]
+		>) {
+			if (!targetConfig) {
+				continue;
+			}
+			targets[targetTriple] = {
+				...targetConfig,
+				compile: {
+					...targetConfig.compile,
+					llvm: normalizeRuntimeLlvmConfig(targetConfig.compile.llvm)
+				}
+			};
+		}
+		return {
+			...value,
+			targets
+		};
 	}
 
 	if (isRuntimeManifestV2(value) || isRuntimeManifestV3(value)) {
@@ -429,7 +495,10 @@ export function normalizeRuntimeManifest(
 							sysrootPack: targetConfig.sysrootPack
 						}
 					: {}),
-				compile: targetConfig.compile,
+				compile: {
+					...targetConfig.compile,
+					llvm: normalizeRuntimeLlvmConfig(targetConfig.compile.llvm)
+				},
 				execution: targetConfig.execution
 			};
 		}
@@ -463,7 +532,7 @@ export function normalizeRuntimeManifest(
 				sysrootFiles: value.sysrootFiles,
 				compile: {
 					kind: 'llvm-wasm',
-					llvm: value.llvm,
+					llvm: normalizeRuntimeLlvmConfig(value.llvm),
 					link: value.link
 				},
 				execution: {
