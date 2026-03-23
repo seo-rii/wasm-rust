@@ -1,5 +1,6 @@
 import {
 	compileRust,
+	preloadBrowserRustRuntime,
 	type BrowserRustCompileProgress,
 	type BrowserRustCompiler,
 	type BrowserRustCompilerFactory,
@@ -7,7 +8,8 @@ import {
 	type BrowserRustCompileRequest,
 	type BrowserRustCompileStage,
 	type CompilerDiagnostic,
-	type CreateRustCompilerOptions
+	type CreateRustCompilerOptions,
+	type PreloadBrowserRustRuntimeOptions
 } from './compiler.js';
 import {
 	executeBrowserRustArtifact,
@@ -24,10 +26,11 @@ export type {
 	BrowserRustCompileStage,
 	CompilerDiagnostic,
 	CreateRustCompilerOptions,
+	PreloadBrowserRustRuntimeOptions,
 	BrowserExecutionOptions,
 	BrowserExecutionResult
 };
-export { executeBrowserRustArtifact };
+export { executeBrowserRustArtifact, preloadBrowserRustRuntime };
 
 export async function createRustCompiler(
 	options?: CreateRustCompilerOptions

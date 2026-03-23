@@ -4,8 +4,16 @@ vi.mock('../src/browser-execution.js', () => ({
 	executeBrowserRustArtifact: vi.fn()
 }));
 
-import createRustCompiler, { createRustCompiler as createNamedCompiler } from '../src/index.js';
-import { FakeWorker, createRuntimeManifest, mirrorBitcode } from './helpers.js';
+import createRustCompiler, {
+	createRustCompiler as createNamedCompiler,
+	preloadBrowserRustRuntime
+} from '../src/index.js';
+import {
+	FakeWorker,
+	createRuntimeManifest,
+	createRuntimeManifestV3,
+	mirrorBitcode
+} from './helpers.js';
 
 describe('wasm-rust compiler contract', () => {
 	it('exports both default and named factory functions', async () => {
@@ -51,5 +59,74 @@ describe('wasm-rust compiler contract', () => {
 		expect(result.artifact?.targetTriple).toBe('wasm32-wasip1');
 		expect(result.artifact?.format).toBe('core-wasm');
 		expect(result.artifact?.wat).toBeUndefined();
+	});
+
+	it('preloads selected target runtime assets and component modules', async () => {
+		const fetchedUrls: string[] = [];
+		const importedUrls: string[] = [];
+
+		await preloadBrowserRustRuntime({
+			targetTriple: 'wasm32-wasip3',
+			dependencies: {
+				loadManifest: async () => createRuntimeManifestV3(),
+				fetchImpl: async (assetUrl) => {
+					fetchedUrls.push(assetUrl.toString());
+					return new Response(new Uint8Array([1, 2, 3]));
+				},
+				importRuntimeModule: async (assetUrl) => {
+					importedUrls.push(assetUrl);
+					return {};
+				}
+			}
+		});
+
+		expect(fetchedUrls).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/compiler-worker\.js\?v=test-runtime-v3$/),
+				expect.stringMatching(/rustc-thread-worker\.js\?v=test-runtime-v3$/),
+				expect.stringMatching(/runtime\/rustc\/rustc\.wasm\.gz\?v=test-runtime-v3$/),
+				expect.stringMatching(
+					/runtime\/packs\/sysroot\/wasm32-wasip3\.index\.json\.gz\?v=test-runtime-v3$/
+				),
+				expect.stringMatching(
+					/runtime\/packs\/sysroot\/wasm32-wasip3\.pack\.gz\?v=test-runtime-v3$/
+				),
+				expect.stringMatching(/runtime\/llvm\/llc\.wasm\.gz\?v=test-runtime-v3$/),
+				expect.stringMatching(/runtime\/llvm\/lld\.wasm\.gz\?v=test-runtime-v3$/),
+				expect.stringMatching(/runtime\/llvm\/lld\.data\.gz\?v=test-runtime-v3$/),
+				expect.stringMatching(
+					/runtime\/packs\/link\/wasm32-wasip3\.index\.json\.gz\?v=test-runtime-v3$/
+				),
+				expect.stringMatching(
+					/runtime\/packs\/link\/wasm32-wasip3\.pack\.gz\?v=test-runtime-v3$/
+				),
+				expect.stringMatching(
+					/vendor\/jco\/lib\/wasi_snapshot_preview1\.command\.wasm\?v=test-runtime-v3$/
+				)
+			])
+		);
+		expect(importedUrls).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/runtime\/llvm\/llc\.js\?v=test-runtime-v3$/),
+				expect.stringMatching(/runtime\/llvm\/lld\.js\?v=test-runtime-v3$/),
+				expect.stringMatching(/vendor\/jco\/src\/browser\.js\?v=test-runtime-v3$/),
+				expect.stringMatching(/vendor\/jco\/obj\/wasm-tools\.js\?v=test-runtime-v3$/),
+				expect.stringMatching(/vendor\/preview2-shim\/lib\/browser\/cli\.js\?v=test-runtime-v3$/),
+				expect.stringMatching(
+					/vendor\/preview2-shim\/lib\/browser\/filesystem\.js\?v=test-runtime-v3$/
+				),
+				expect.stringMatching(/vendor\/preview2-shim\/lib\/browser\/io\.js\?v=test-runtime-v3$/),
+				expect.stringMatching(
+					/vendor\/preview2-shim\/lib\/browser\/random\.js\?v=test-runtime-v3$/
+				),
+				expect.stringMatching(
+					/vendor\/preview2-shim\/lib\/browser\/clocks\.js\?v=test-runtime-v3$/
+				),
+				expect.stringMatching(
+					/vendor\/preview2-shim\/lib\/browser\/sockets\.js\?v=test-runtime-v3$/
+				),
+				expect.stringMatching(/vendor\/preview2-shim\/lib\/browser\/http\.js\?v=test-runtime-v3$/)
+			])
+		);
 	});
 });
