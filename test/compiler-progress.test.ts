@@ -138,6 +138,11 @@ describe('compileRust progress contract', () => {
 				(event) => event.stage === 'await-bitcode' && event.completed === 1
 			)
 		).toBe(true);
+		expect(
+			progressEvents.find(
+				(event) => event.stage === 'await-bitcode' && event.completed === 0
+			)?.percent
+		).toBeLessThan(60);
 	});
 
 	it('keeps progress monotonic across retries and exposes the next attempt', async () => {
