@@ -293,4 +293,57 @@ describe('browser linker asset loading', () => {
 			])
 		);
 	});
+
+	it('recovers when stale linker metadata asks for raw llvm assets but only gzip assets are available', async () => {
+		const { manifest, target } = createNormalizedTarget();
+		const modules = createFakeLlvmModules();
+		const requestedUrls: string[] = [];
+
+		const artifact = await linkBitcodeWithLlvmWasm(
+			new Uint8Array([1, 2, 3]),
+			manifest,
+			target,
+			'https://example.test/runtime/',
+			{
+				importRuntimeModule: modules.importRuntimeModule,
+				fetchImpl: async (assetUrl) => {
+					requestedUrls.push(String(assetUrl));
+					if (
+						String(assetUrl).endsWith('/llvm/llc.wasm') ||
+						String(assetUrl).endsWith('/llvm/lld.wasm') ||
+						String(assetUrl).endsWith('/llvm/lld.data')
+					) {
+						return new Response('<!doctype html><html><body>fallback</body></html>', {
+							status: 200,
+							headers: {
+								'content-type': 'text/html; charset=utf-8'
+							}
+						});
+					}
+					if (
+						String(assetUrl).endsWith('/llvm/llc.wasm.gz') ||
+						String(assetUrl).endsWith('/llvm/lld.wasm.gz')
+					) {
+						return new Response(gzipSync(new Uint8Array([0x00, 0x61, 0x73, 0x6d])));
+					}
+					if (String(assetUrl).endsWith('/llvm/lld.data.gz')) {
+						return new Response(gzipSync(new Uint8Array([9, 8, 7])));
+					}
+					return new Response(new Uint8Array([1, 2, 3, 4]));
+				}
+			}
+		);
+
+		expect(artifact.format).toBe('core-wasm');
+		expect(requestedUrls).toEqual(
+			expect.arrayContaining([
+				'https://example.test/runtime/llvm/llc.wasm',
+				'https://example.test/runtime/llvm/llc.wasm.gz',
+				'https://example.test/runtime/llvm/lld.wasm',
+				'https://example.test/runtime/llvm/lld.wasm.gz',
+				'https://example.test/runtime/llvm/lld.data',
+				'https://example.test/runtime/llvm/lld.data.gz'
+			])
+		);
+	});
 });
