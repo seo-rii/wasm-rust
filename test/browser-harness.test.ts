@@ -51,6 +51,15 @@ async function runNode(args: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 describe('browser harness probe', () => {
+	it('includes wasm32-wasip3 in the target selector options', async () => {
+		const harnessHtml = await fs.readFile(
+			path.join(projectRoot, 'browser-harness/index.html'),
+			'utf8'
+		);
+
+		expect(harnessHtml).toContain('<option value="wasm32-wasip3">wasm32-wasip3</option>');
+	});
+
 	it(
 		'compiles and runs hello world in Chromium when the real browser runtime is available',
 		async () => {
