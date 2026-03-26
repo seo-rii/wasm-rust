@@ -10,7 +10,11 @@ import {
 } from './runtime-manifest.js';
 import { readMirroredBitcode } from './rustc-runtime.js';
 import { readWorkerFailure, WORKER_STATUS_BUFFER_BYTES } from './worker-status.js';
-import type { CompileWorkerMessage, CompileWorkerRequest } from './worker-protocol.js';
+import type {
+	CompileWorkerFailureKind,
+	CompileWorkerMessage,
+	CompileWorkerRequest
+} from './worker-protocol.js';
 import type {
 	BrowserRustCompileProgress,
 	BrowserRustCompileRequest,
@@ -386,9 +390,12 @@ export async function compileRust(
 		}
 		emitCompileLog(message, level);
 	};
-	const flushAttemptCompileLogs = (attemptCompileLogs: BufferedCompileLog[]) => {
+	const flushAttemptCompileLogs = (attemptCompileLogs: BufferedCompileLog[], emit = true) => {
 		if (request.log) {
 			compileLogs.push(...attemptCompileLogs);
+		}
+		if (!emit) {
+			return;
 		}
 		for (const record of attemptCompileLogs) {
 			emitCompileLog(record.message, record.level);
@@ -449,6 +456,11 @@ export async function compileRust(
 		'failed to parse rlib',
 		"can't find crate for `std`",
 		'the compiler unexpectedly panicked'
+	];
+	const retryableFailureKinds: CompileWorkerFailureKind[] = [
+		'helper-thread',
+		'worker-bootstrap',
+		'compile-timeout'
 	];
 	emitCompileProgress('manifest', 1, {
 		completed: 0,
@@ -572,6 +584,7 @@ export async function compileRust(
 			let workerResultConsumed = false;
 			let workerBootstrapError: Error | null = null;
 			let attemptResult: BrowserRustCompilerResult | null = null;
+			let attemptFailureKind: CompileWorkerFailureKind | null = null;
 			let pendingHelperThreadFailure: string | null = null;
 			let pendingHelperThreadFailureObservedAt = 0;
 			let deferredWorkerError: Extract<SettledCompileWorkerMessage, { type: 'error' }> | null = null;
@@ -601,9 +614,10 @@ export async function compileRust(
 							mirrored.length === 0 &&
 							!mirrored.overflowed &&
 							mirrored.writeSequence > 0 &&
-							normalizedWorkerFailureText.includes(
-								'browser rustc helper thread failed before producing llvm bitcode'
-							);
+							(raced.message.failureKind === 'helper-thread' ||
+								normalizedWorkerFailureText.includes(
+									'browser rustc helper thread failed before producing llvm bitcode'
+								));
 						if (shouldDeferWorkerFailure) {
 							deferredWorkerError = raced.message;
 							pendingHelperThreadFailure =
@@ -637,6 +651,7 @@ export async function compileRust(
 							break;
 						}
 						worker.terminate();
+						attemptFailureKind = 'helper-thread';
 						attemptResult = makeFailure(pendingHelperThreadFailure);
 						break;
 					}
@@ -715,6 +730,7 @@ export async function compileRust(
 				`[wasm-rust] compile worker bootstrap failed ${workerBootstrapError.message}`,
 				'debug'
 			);
+			attemptFailureKind = 'worker-bootstrap';
 			attemptResult = makeFailure(workerBootstrapError.message);
 		}
 
@@ -780,6 +796,7 @@ export async function compileRust(
 					'[wasm-rust] compile timed out before mirrored bitcode appeared',
 					'debug'
 				);
+				attemptFailureKind = 'compile-timeout';
 				attemptResult = makeFailure('browser rustc timed out before producing LLVM bitcode');
 			}
 		}
@@ -846,6 +863,13 @@ export async function compileRust(
 						settledMessage.stdout
 					);
 				} else {
+					attemptFailureKind =
+						settledMessage.failureKind ||
+						((settledMessage.stderr || settledMessage.message)
+							.toLowerCase()
+							.includes('browser rustc helper thread failed before producing llvm bitcode')
+							? 'helper-thread'
+							: null);
 					attemptResult = makeFailure(
 						settledMessage.stderr || settledMessage.message,
 						settledMessage.diagnostics,
@@ -935,9 +959,14 @@ export async function compileRust(
 		const normalizedAttemptStderr = attemptStderr.toLowerCase();
 		const shouldRetry =
 			attempt < maxBrowserAttempts &&
-			Boolean(attemptStderr) &&
-			retryableFailurePatterns.some((pattern) => normalizedAttemptStderr.includes(pattern));
+			((attemptFailureKind !== null &&
+				retryableFailureKinds.includes(attemptFailureKind)) ||
+				(Boolean(attemptStderr) &&
+					retryableFailurePatterns.some((pattern) =>
+						normalizedAttemptStderr.includes(pattern)
+					)));
 		if (shouldRetry) {
+			flushAttemptCompileLogs(attemptCompileLogs, false);
 			recordPersistentCompileLog(
 				`[wasm-rust] browser rustc attempt ${attempt}/${maxBrowserAttempts} failed; retrying`,
 				'warn'

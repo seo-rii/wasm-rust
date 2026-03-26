@@ -258,7 +258,8 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 		reportedThreadFailure = true;
 		postMessage({
 			type: 'error',
-			message
+			message,
+			failureKind: 'helper-thread'
 		} satisfies CompileWorkerMessage);
 	};
 	emitCompileWorkerProgress(request, {

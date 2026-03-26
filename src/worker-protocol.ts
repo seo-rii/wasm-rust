@@ -27,9 +27,15 @@ export interface CompileWorkerSuccessMessage {
 	diagnostics?: CompilerDiagnostic[];
 }
 
+export type CompileWorkerFailureKind =
+	| 'helper-thread'
+	| 'worker-bootstrap'
+	| 'compile-timeout';
+
 export interface CompileWorkerFailureMessage {
 	type: 'error';
 	message: string;
+	failureKind?: CompileWorkerFailureKind;
 	stdout?: string;
 	stderr?: string;
 	diagnostics?: CompilerDiagnostic[];
