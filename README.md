@@ -40,18 +40,20 @@ Current scope:
 Build the shipped runtime bundle:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm build
 ```
 
 `pnpm build` now auto-detects a cached `wasi-sdk >= 22` under the toolchain cache root and
 `$HOME/.cache/wasm-rust*/wasi-sdk-*`, so `wasm32-wasip2` is included again on this workspace
 without exporting `WASM_RUST_WASI_SDK_ROOT` manually.
+The default `rustc.wasm` and `llvm-wasm` cache roots also follow `$HOME/.cache/...` unless the
+matching `WASM_RUST_*` overrides are set.
 
 Package the dual-target runtime bundle, including `wasm32-wasip2`:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run prepare:runtime:wasip2
 ```
 
@@ -60,7 +62,7 @@ Set `WASM_RUST_WASI_SDK_ROOT` only when you want to override that auto-detected 
 Prepare the patched toolchain inputs needed for `wasm32-wasip3`:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run toolchain:prepare:wasip3-source
 pnpm run toolchain:prepare:wasip3-libc
 WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
@@ -81,7 +83,7 @@ prepends `WASM_RUST_WASI_SDK_ROOT/bin` to `PATH` so Rust bootstrap sanity checks
 For the shortest repo-owned path, use:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
 pnpm run toolchain:bootstrap:wasip3 -- --foreground
 WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
@@ -91,7 +93,7 @@ pnpm run prepare:runtime:wasip3
 Run the full standalone validation sequence:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run validate:standalone-browser
 ```
 
@@ -220,14 +222,14 @@ Important runtime notes:
 Serve the standalone harness:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run serve:browser-harness
 ```
 
 Probe it with Chromium:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run probe:browser-harness
 ```
 
@@ -273,21 +275,21 @@ pnpm run probe:browser-harness
 Upload one or more release assets with `gh`:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run release:upload -- --tag v0.1.0 ./dist/runtime/runtime-manifest.v3.json
 ```
 
 Create the release at the latest local commit and tag it:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run release:upload -- --tag v0.1.0 --create-release
 ```
 
 Package `dist/` and upload it in one step:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run release:upload -- --tag v0.1.0 --create-release --build --pack-dist
 ```
 
@@ -319,6 +321,8 @@ Notes:
   - stable browser-consumer contract, runtime expectations, retry semantics, vendored-asset refresh flow
 - [docs/reproduction.md](./docs/reproduction.md)
   - exact reproduction commands, cache/toolchain expectations, environment overrides
+- [docs/environment-variables.md](./docs/environment-variables.md)
+  - consolidated runtime packaging, browser validation, and wasip3 bootstrap knobs
 - [PROGRESS.md](./PROGRESS.md)
   - current verified state, open limitation, and next decision
 - [docs/real-rustc-history.md](./docs/real-rustc-history.md)

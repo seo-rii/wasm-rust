@@ -9,8 +9,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	distRoot as prepareRuntimeDistRoot,
+	llvmWasmRoot as prepareRuntimeLlvmWasmRoot,
+	matchingNativeToolchainRoot as prepareRuntimeMatchingNativeToolchainRoot,
 	projectRoot as prepareRuntimeProjectRoot,
-	runtimeRoot as prepareRuntimeRuntimeRoot
+	runtimeRoot as prepareRuntimeRuntimeRoot,
+	wasmRustcRoot as prepareRuntimeWasmRustcRoot
 } from '../scripts/prepare-runtime.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -89,11 +92,8 @@ async function hasCompatibleWasiSdk() {
 	if (configuredRoot) {
 		return pathExists(path.join(configuredRoot, 'bin', 'wasm-component-ld'));
 	}
-	const rustcRoot =
-		process.env.WASM_RUST_RUSTC_ROOT ||
-		'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir';
 	for (const candidate of [
-		...(await collectNestedWasiSdkRoots(path.dirname(path.dirname(rustcRoot)))),
+		...(await collectNestedWasiSdkRoots(path.dirname(path.dirname(prepareRuntimeWasmRustcRoot)))),
 		...(await collectNestedWasiSdkRoots(path.join(os.homedir(), '.cache')))
 	]) {
 		if (await pathExists(path.join(candidate, 'bin', 'wasm-component-ld'))) {
@@ -104,11 +104,39 @@ async function hasCompatibleWasiSdk() {
 }
 
 async function hasTargetSysroot(targetTriple: string) {
-	const rustcRoot =
-		process.env.WASM_RUST_RUSTC_ROOT ||
-		'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir';
-	return pathExists(path.join(rustcRoot, 'lib', 'rustlib', targetTriple, 'lib'));
+	return pathExists(path.join(prepareRuntimeWasmRustcRoot, 'lib', 'rustlib', targetTriple, 'lib'));
 }
+
+describe('prepare-runtime defaults', () => {
+	it('derives toolchain cache defaults from the current home directory', () => {
+		expect(prepareRuntimeWasmRustcRoot).toBe(
+			process.env.WASM_RUST_RUSTC_ROOT ||
+				path.join(
+					os.homedir(),
+					'.cache',
+					'wasm-rust-real-rustc-20260317',
+					'rust',
+					'dist-emit-ir'
+				)
+		);
+		expect(prepareRuntimeMatchingNativeToolchainRoot).toBe(
+			process.env.WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT ||
+				path.join(
+					os.homedir(),
+					'.cache',
+					'wasm-rust-real-rustc-20260317',
+					'rust',
+					'build',
+					'x86_64-unknown-linux-gnu',
+					'stage2'
+				)
+		);
+		expect(prepareRuntimeLlvmWasmRoot).toBe(
+			process.env.WASM_RUST_LLVM_WASM_ROOT ||
+				path.join(os.homedir(), '.cache', 'llvm-wasm-20260319')
+		);
+	});
+});
 
 builtBrowserBundle('built browser bundle', () => {
 	it('derives runtime build paths from the current checkout instead of a machine-local absolute path', () => {

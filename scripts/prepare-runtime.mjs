@@ -26,17 +26,17 @@ const preview2ShimRoot = path.join(
 	'lib'
 );
 const jcoRoot = path.join(projectRoot, 'node_modules', '@bytecodealliance', 'jco');
+const cacheRoot = path.join(os.homedir(), '.cache');
+const defaultRustcCacheRoot = path.join(cacheRoot, 'wasm-rust-real-rustc-20260317', 'rust');
 
 const wasmRustcRoot =
-	process.env.WASM_RUST_RUSTC_ROOT ||
-	'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir';
+	process.env.WASM_RUST_RUSTC_ROOT || path.join(defaultRustcCacheRoot, 'dist-emit-ir');
 const matchingNativeToolchainRoot =
 	process.env.WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT ||
-	'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2';
+	path.join(defaultRustcCacheRoot, 'build', 'x86_64-unknown-linux-gnu', 'stage2');
 const matchingNativeSysrootRoot =
 	process.env.WASM_RUST_MATCHING_NATIVE_SYSROOT_ROOT || wasmRustcRoot;
-const llvmWasmRoot =
-	process.env.WASM_RUST_LLVM_WASM_ROOT || '/home/seorii/.cache/llvm-wasm-20260319';
+const llvmWasmRoot = process.env.WASM_RUST_LLVM_WASM_ROOT || path.join(cacheRoot, 'llvm-wasm-20260319');
 const configuredWasiSdkRoot =
 	process.env.WASM_RUST_WASI_SDK_ROOT || process.env.WASI_SDK_PATH || '';
 const configuredTargetTriples = parseTargetTripleList(
@@ -1038,4 +1038,12 @@ if (isDirectExecution) {
 	await main();
 }
 
-export { distRoot, parseRuntimePrecompressionScopes, projectRoot, runtimeRoot };
+export {
+	distRoot,
+	llvmWasmRoot,
+	matchingNativeToolchainRoot,
+	parseRuntimePrecompressionScopes,
+	projectRoot,
+	runtimeRoot,
+	wasmRustcRoot
+};

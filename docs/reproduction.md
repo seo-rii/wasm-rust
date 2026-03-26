@@ -8,7 +8,7 @@ This document lists the commands and script entrypoints needed to reproduce the 
 One command runs the standalone browser validation sequence:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run validate:standalone-browser
 ```
 
@@ -50,14 +50,14 @@ Observed during the same successful run:
 Serve the standalone browser harness:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run serve:browser-harness
 ```
 
 Probe it through Chromium:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run probe:browser-harness
 ```
 
@@ -71,14 +71,14 @@ Expected success shape:
 Owned browser regression:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts
 ```
 
 Direct Playwright integration regression:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts
 ```
 
@@ -89,28 +89,28 @@ These are still useful for deeper diagnosis.
 Browser clang/lld incompatibility probe:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run probe:browser-clang-rust-split
 ```
 
 `llvm-wasm` textual IR backend probe:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run probe:llvm-wasm-rust-split
 ```
 
 Browser rustc + llvm-wasm split probe:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run probe:browser-rustc-llvm-wasm-split
 ```
 
 Heavy regression for the split probe:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 WASM_RUST_RUN_REAL_RUSTC_SPLIT_PROBE=1 \
 pnpm exec vitest run test/backend-probes.test.ts \
   -t "links browser-produced Rust bitcode through llvm-wasm when the real rustc.wasm toolchain is available"
@@ -121,7 +121,7 @@ pnpm exec vitest run test/backend-probes.test.ts \
 Rebuild the shipped runtime assets:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm build
 ```
 
@@ -134,7 +134,7 @@ Rebuild a patched custom toolchain and ship a runtime bundle that also contains
 `wasm32-wasip3`:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run toolchain:prepare:wasip3-source
 pnpm run toolchain:prepare:wasip3-libc
 WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
@@ -160,7 +160,7 @@ Important expectations for that path:
 Repo-owned bootstrap shortcut:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
 pnpm run toolchain:bootstrap:wasip3 -- --foreground
 ```
@@ -172,21 +172,21 @@ The source-preparation step defaults to `https://github.com/rust-lang/rust.git` 
 Upload existing files to an existing GitHub release:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run release:upload -- --tag v0.1.0 ./dist/runtime/runtime-manifest.v3.json
 ```
 
 Create a release from the latest local commit and tag it:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run release:upload -- --tag v0.1.0 --create-release
 ```
 
 Create the release, build, package `dist/`, and upload the resulting tarball:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run release:upload -- --tag v0.1.0 --create-release --build --pack-dist
 ```
 
@@ -211,11 +211,11 @@ Useful flags:
 Unless overridden, the checked-in scripts expect:
 
 - browser-host rustc bundle:
-  - `/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir`
+  - `$HOME/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir`
 - matching native stage2 toolchain:
-  - `/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2`
+  - `$HOME/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2`
 - `llvm-wasm` cache:
-  - `/home/seorii/.cache/llvm-wasm-20260319`
+  - `$HOME/.cache/llvm-wasm-20260319`
 
 ## Environment overrides
 
@@ -231,6 +231,8 @@ Useful overrides:
 - `WASM_RUST_BROWSER_HARNESS_INITIAL_PAGES`
 - `WASM_RUST_BROWSER_HARNESS_MAXIMUM_PAGES`
 
+For the broader packaging/bootstrap list, see `docs/environment-variables.md`.
+
 ## Supporting docs
 
 - `README.md`
@@ -238,16 +240,17 @@ Useful overrides:
 - `docs/consumer-integration.md`
 - `docs/real-rustc-history.md`
 - `docs/browser-compiler.md`
+- `docs/environment-variables.md`
 
 ## wasm-idle consumer route
 
 The linked consumer-side browser route is also reproducible:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm build
 
-cd /home/seorii/dev/hancomac/wasm-idle
+cd /path/to/wasm-idle
 pnpm run sync:wasm-rust
 
 WASM_IDLE_BROWSER_URL='http://localhost:5173/absproxy/5173/' \

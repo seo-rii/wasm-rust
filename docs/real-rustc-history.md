@@ -24,7 +24,7 @@ What is now true:
 Latest repo-owned validation command:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run validate:standalone-browser
 ```
 

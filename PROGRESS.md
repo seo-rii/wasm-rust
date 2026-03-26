@@ -42,7 +42,7 @@ This file records the current checked-in state only. Historical investigation de
 Validated command:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm exec vitest run test/compiler-retry.test.ts test/rustc-runtime.test.ts test/thread-startup.test.ts test/worker-status.test.ts test/browser-harness.test.ts test/fixtures.test.ts test/wasip3-build-pipeline.test.ts
 pnpm exec tsc -p tsconfig.json --noEmit
 WASM_RUST_BROWSER_HARNESS_TARGET_TRIPLES=wasm32-wasip3 node ./scripts/probe-browser-harness.mjs

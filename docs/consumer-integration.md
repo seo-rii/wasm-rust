@@ -144,10 +144,10 @@ If a consumer vendors the built output locally, treat the whole `dist/` tree as 
 In `wasm-idle`, the refresh flow is:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm build
 
-cd /home/seorii/dev/hancomac/wasm-idle
+cd /path/to/wasm-idle
 pnpm run sync:wasm-rust
 ```
 
@@ -155,13 +155,16 @@ If you need the transitional `wasm32-wasip3` target in that vendored bundle, pre
 first:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 WASM_RUST_WASI_SDK_ROOT=/path/to/wasi-sdk-22-or-newer \
 pnpm run prepare:runtime:wasip3
 
-cd /home/seorii/dev/hancomac/wasm-idle
+cd /path/to/wasm-idle
 pnpm run sync:wasm-rust
 ```
 
 If the browser reports stale sysroot/archive errors after a rebuild, hard refresh the page so the new
 bundle version is used.
+
+See `docs/environment-variables.md` for the packaging and validation env overrides that most often
+matter during local integration.

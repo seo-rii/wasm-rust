@@ -2,19 +2,28 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
-const projectRoot = '/home/seorii/dev/hancomac/wasm-rust';
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const llvmWasmRoot = process.env.WASM_RUST_LLVM_WASM_ROOT || '/tmp/llvm-wasm-20260317';
 const realRustcRoot =
 	process.env.WASM_RUST_RUSTC_ROOT ||
-	'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir';
+	path.join(os.homedir(), '.cache', 'wasm-rust-real-rustc-20260317', 'rust', 'dist-emit-ir');
 const matchingNativeToolchainRoot =
 	process.env.WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT ||
-	'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2';
+	path.join(
+		os.homedir(),
+		'.cache',
+		'wasm-rust-real-rustc-20260317',
+		'rust',
+		'build',
+		'x86_64-unknown-linux-gnu',
+		'stage2'
+	);
 
 async function runNode(args: string[], env: NodeJS.ProcessEnv = {}) {
 	const childEnv: NodeJS.ProcessEnv = {

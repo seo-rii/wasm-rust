@@ -234,13 +234,17 @@ Important env vars:
 - `WASM_RUST_RUST_SOURCE_REF`
   - override for the Rust checkout ref used by `toolchain:prepare:wasip3-source`
   - defaults to `main` for `rust-lang/rust`
+- See `docs/environment-variables.md` for the consolidated packaging/validation env reference.
+- Compatibility policy:
+  - new builds publish `runtime-manifest.v3.json`
+  - `v2` and legacy `v1` loading remains only for consuming older bundles
 
 ## Latest standalone validation evidence
 
 Latest fully-owned validation command:
 
 ```bash
-cd /home/seorii/dev/hancomac/wasm-rust
+cd /path/to/wasm-rust
 pnpm run validate:standalone-browser
 ```
 
