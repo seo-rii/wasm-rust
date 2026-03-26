@@ -60,6 +60,15 @@ describe('browser harness probe', () => {
 		expect(harnessHtml).toContain('<option value="wasm32-wasip3">wasm32-wasip3</option>');
 	});
 
+	it('declares an inline favicon to keep the harness console free of 404 noise', async () => {
+		const harnessHtml = await fs.readFile(
+			path.join(projectRoot, 'browser-harness/index.html'),
+			'utf8'
+		);
+
+		expect(harnessHtml).toContain('<link rel="icon" href="data:," />');
+	});
+
 	it(
 		'compiles and runs hello world in Chromium when the real browser runtime is available',
 		async () => {
