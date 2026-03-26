@@ -14,11 +14,15 @@ pnpm run validate:standalone-browser
 
 That script runs:
 
+1. `pnpm run test:ci:fast`
+2. `pnpm run test:ci:browser`
+
+And `pnpm run test:ci:browser` expands to:
+
 1. `pnpm build`
-2. `pnpm test`
-3. `pnpm run probe:browser-harness`
-4. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts`
-5. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts`
+2. `pnpm run probe:browser-harness`
+3. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts`
+4. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts`
 
 Script file:
 
@@ -26,8 +30,8 @@ Script file:
 
 Latest validated outcome from that wrapper:
 
-- build succeeds
-- unit/integration tests succeed
+- `test:ci:fast` succeeds
+- `test:ci:browser` succeeds
 - Chromium harness probe succeeds
 - Chromium Vitest harness succeeds
 - final hello-world result is:

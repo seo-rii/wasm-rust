@@ -17,8 +17,9 @@ This file records the current checked-in state only. Historical investigation de
 - The shipped module returns a runnable WASI `wasm` artifact through the browser compiler contract.
 - The internal compile/thread workers now use direct same-origin module workers instead of `blob:`
   wrappers so deployed pages with stricter CSP do not fail at browser worker bootstrap.
-- Browser retries are now surfaced as visible warnings with the retry reason instead of only debug
-  transitions into attempts `2/5`, `3/5`, and so on.
+- Browser retries are now surfaced through `result.logs` and console warnings when
+  `compile({ log: true })` is enabled instead of only debug transitions into attempts `2/5`,
+  `3/5`, and so on.
 - The public browser compiler request now accepts `onProgress`, and compile-time logs are returned
   separately through `result.logs` instead of being merged into `stdout`.
 - The standalone browser harness now renders a real progress bar from structured progress events

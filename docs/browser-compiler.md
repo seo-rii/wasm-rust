@@ -157,7 +157,7 @@ Shipped mitigation:
     - `found invalid metadata files for crate`
     - `failed to parse rlib`
 - helper-worker/transient retry diagnostics are now emitted as visible warnings with the retry
-  reason
+  reason when `compile({ log: true })` is enabled
   - successful consumers should not surface those recovered internal failures as user-visible
     terminal errors
 - when `compile({ log: true })` is used, compile-time browser-rustc log lines are returned through
@@ -175,7 +175,7 @@ This is an intentional product behavior, not just a probe-only trick.
 
 The browser retry path is now part of the consumer contract:
 
-- compile retries are visible as warnings
+- compile retries are visible as warnings when `compile({ log: true })` is enabled
 - recovered internal worker failures should not be forwarded into user-facing program output
 - a final `success: true` compile result is the only outcome the consumer should treat as decisive
 
@@ -192,7 +192,9 @@ For consumer-side stdin behavior:
 New runtime/build helpers:
 
 - `pnpm run prepare:runtime`
-  - packages `rustc.wasm`, target sysroots, link assets, v1 manifest, and v2 manifest
+  - packages `rustc.wasm`, target sysroots, link assets, and `runtime-manifest.v3.json`
+  - emitted bundles stay v3-first while the loader still falls back to `v2` and legacy `v1`
+    manifests for older bundles
 - `pnpm run toolchain:build:custom`
   - env-driven wrapper for rebuilding the custom browser `rustc.wasm` toolchain
 - `pnpm run toolchain:prepare:wasip3-libc`
@@ -244,16 +246,20 @@ pnpm run validate:standalone-browser
 
 Latest observed outcome:
 
-- `build` passed
-- targeted Vitest coverage passed for:
+- `test:ci:fast` passed
+- `test:ci:browser` passed, which includes:
+  - `pnpm build`
+  - Chromium harness probe
+  - browser harness Vitest coverage
+  - browser Playwright integration coverage
+- targeted browser coverage still included:
   - helper-thread startup/retry/runtime shims
   - richer Chromium browser harness regression
   - `wasip3` build-pipeline normalization
-- Playwright Chromium harness probe passed for:
+- final browser results included:
   - `wasm32-wasip1` minimal sample
   - richer `wasm32-wasip2` sample with preview2 args/stdin
   - transitional `wasm32-wasip3` minimal sample
-- final browser results included:
   - `wasm32-wasip2` stdout containing `preview2_component=preview2-cli`
   - `wasm32-wasip2` stdout containing `factorial_plus_bonus=27`
   - `wasm32-wasip3` stdout `hi\n`
@@ -268,7 +274,7 @@ Important observation from the same successful run:
 
 Observed recovery markers from the successful browser run:
 
-- the worker logged `browser rustc attempt 1/5 failed; retrying reason=...`
+- `result.logs` included `browser rustc attempt 1/5 failed; retrying` when `log: true` was enabled
 - the shared mirror logged `mirrored artifact updated seq=2 bytes=4996 overflowed=false`
 - the linker logged `mirrored bitcode settled; linking through llvm-wasm`
 

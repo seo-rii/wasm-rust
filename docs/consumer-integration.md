@@ -5,13 +5,24 @@ This document describes the stable contract that a browser app should rely on wh
 
 ## What a consumer gets
 
-`wasm-rust` exposes a browser-loadable ESM module that exports `default` and `createRustCompiler`.
+`wasm-rust` exposes a browser-loadable ESM module that exports:
+
+- `default`
+- `createRustCompiler`
+- `preloadBrowserRustRuntime`
+- `executeBrowserRustArtifact`
 
 Typical consumer flow:
 
 ```ts
-import createRustCompiler from '/wasm-rust/index.js';
+import createRustCompiler, {
+	executeBrowserRustArtifact,
+	preloadBrowserRustRuntime
+} from '/wasm-rust/index.js';
 
+await preloadBrowserRustRuntime({
+	targetTriple: 'wasm32-wasip2'
+});
 const compiler = await createRustCompiler();
 const result = await compiler.compile({
 	code: 'fn main() { println!("hi"); }',
@@ -21,6 +32,13 @@ const result = await compiler.compile({
 	prepare: true,
 	log: true
 });
+
+if (result.success && result.artifact) {
+	const runtime = await executeBrowserRustArtifact(result.artifact, {
+		stdin: () => '7\n'
+	});
+	console.log(runtime.stdout, runtime.exitCode);
+}
 ```
 
 Successful result shape:
@@ -87,7 +105,7 @@ Recommended behavior:
 `wasm-rust` intentionally retries transient browser-rustc failures up to five attempts.
 
 This is currently expected product behavior, not an exceptional local workaround. A consumer should
-expect to see warning logs like:
+expect to see warning logs like the following when `compile({ log: true })` is enabled:
 
 ```text
 [wasm-rust] browser rustc attempt 1/5 failed; retrying

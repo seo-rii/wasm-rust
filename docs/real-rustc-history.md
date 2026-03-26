@@ -54,7 +54,7 @@ Concrete symptom:
 
 Current product behavior:
 
-- transient browser-rustc failures are retried up to `3` attempts
+- transient browser-rustc failures are retried up to `5` attempts
 - mirrored `.no-opt.bc` recovery plus `llvm-wasm` linking is what makes the standalone browser path
   reliable enough today
 
@@ -184,7 +184,7 @@ Resolution:
 
 - preserve the mirrored bitcode
 - lower and link it with packaged `llvm-wasm`
-- retry transient browser-rustc failures up to `3` attempts
+- retry transient browser-rustc failures up to `5` attempts
 
 This is the architecture that shipped.
 

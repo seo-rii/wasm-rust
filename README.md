@@ -19,7 +19,8 @@ with the upstream-required `libc` patch.
 - The richer `wasm32-wasip2` browser regression now covers component args/stdin output such as
   `preview2_component=preview2-cli` and `factorial_plus_bonus=27`.
 - The result is returned through the `wasm-idle` browser compiler contract:
-  - module exports `default` and `createRustCompiler`
+  - module exports `default`, `createRustCompiler`, `preloadBrowserRustRuntime`, and
+    `executeBrowserRustArtifact`
   - factory returns `{ compile(request) }`
   - `compile()` resolves to `{ success, stdout?, stderr?, diagnostics?, logs?, artifact }`
   - `artifact` contains `wasm`, `targetTriple`, and `format`
@@ -97,6 +98,11 @@ pnpm run validate:standalone-browser
 That command runs:
 
 1. `pnpm run test:ci:fast`
+2. `pnpm run test:ci:browser`
+
+And `pnpm run test:ci:browser` expands to:
+
+1. `pnpm build`
 2. `pnpm run probe:browser-harness`
 3. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-harness.test.ts`
 4. `WASM_RUST_RUN_REAL_BROWSER_HARNESS=1 pnpm exec vitest run test/browser-playwright-integration.test.ts`
@@ -119,11 +125,22 @@ Latest verified browser result:
 
 ## API
 
-The published browser module exports `default` and `createRustCompiler`.
+The published browser module exports:
+
+- `default`
+- `createRustCompiler`
+- `preloadBrowserRustRuntime`
+- `executeBrowserRustArtifact`
 
 ```ts
-import createRustCompiler from './dist/index.js';
+import createRustCompiler, {
+	executeBrowserRustArtifact,
+	preloadBrowserRustRuntime
+} from './dist/index.js';
 
+await preloadBrowserRustRuntime({
+	targetTriple: 'wasm32-wasip3'
+});
 const compiler = await createRustCompiler();
 const result = await compiler.compile({
 	code: 'fn main() { println!("hi"); }',
@@ -134,6 +151,13 @@ const result = await compiler.compile({
 		console.log(progress.stage, progress.percent);
 	}
 });
+
+if (result.success && result.artifact) {
+	const runtime = await executeBrowserRustArtifact(result.artifact, {
+		stdin: () => 'input line\n'
+	});
+	console.log(runtime.stdout, runtime.exitCode);
+}
 ```
 
 Result shape:
@@ -182,7 +206,7 @@ Important runtime notes:
   `RUST_MIN_STACK=8388608` so current browser helper threads start reliably enough to mirror LLVM
   bitcode.
 - The compiler currently retries transient browser-rustc worker failures up to five attempts.
-- Retry transitions are intentionally surfaced as visible warnings.
+- Retry transitions are intentionally surfaced as warnings when `compile({ log: true })` is used.
 - Helper-thread startup is handshake-based before a pooled worker returns its thread id. This keeps
   recovered helper-thread failures out of the normal success path when mirrored bitcode already
   exists.
@@ -215,8 +239,10 @@ pnpm run probe:browser-harness
   - uploads one or more assets to a GitHub release with `gh`, and can create the release first
 - `pnpm test`
   - runs the normal test suite
+- `pnpm run test:ci:browser`
+  - canonical browser CI lane: `build + probe + browser vitest + browser playwright`
 - `pnpm run validate:standalone-browser`
-  - full repo-owned browser validation
+  - full repo-owned validation: `test:ci:fast` followed by `test:ci:browser`
 - `pnpm run serve:browser-harness`
   - local COOP/COEP harness server
 - `pnpm run probe:browser-harness`
