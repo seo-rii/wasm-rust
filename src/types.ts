@@ -20,6 +20,13 @@ export interface CompilerDiagnostic {
 	message: string;
 }
 
+export type CompilerLogLevel = 'log' | 'warn' | 'error' | 'debug';
+
+export interface CompilerLogRecord {
+	level: CompilerLogLevel;
+	message: string;
+}
+
 export interface BrowserRustCompileProgress {
 	stage: BrowserRustCompileStage;
 	attempt: number;
@@ -50,6 +57,7 @@ export interface BrowserRustCompilerResult {
 	stderr?: string;
 	diagnostics?: CompilerDiagnostic[];
 	logs?: string[];
+	logRecords?: CompilerLogRecord[];
 	artifact?: {
 		wasm?: Uint8Array | ArrayBuffer;
 		wat?: string;

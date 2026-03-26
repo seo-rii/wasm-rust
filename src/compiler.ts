@@ -21,6 +21,8 @@ import type {
 	BrowserRustCompileStage,
 	BrowserRustCompileWorkerRequest,
 	BrowserRustCompilerResult,
+	CompilerLogLevel,
+	CompilerLogRecord,
 	CompilerDiagnostic,
 	SupportedTargetTriple
 } from './types.js';
@@ -32,7 +34,9 @@ export type {
 	BrowserRustCompiler,
 	BrowserRustCompilerFactory,
 	BrowserRustCompilerResult,
-	CompilerDiagnostic
+	CompilerDiagnostic,
+	CompilerLogLevel,
+	CompilerLogRecord
 } from './types.js';
 
 const SUPPORTED_EDITIONS = new Set(['2021', '2024']);
@@ -79,10 +83,7 @@ export interface PreloadBrowserRustRuntimeOptions {
 }
 
 type SettledCompileWorkerMessage = Exclude<CompileWorkerMessage, { type: 'log' | 'progress' }>;
-type BufferedCompileLog = {
-	level: 'log' | 'warn' | 'error' | 'debug';
-	message: string;
-};
+type BufferedCompileLog = CompilerLogRecord;
 const PROGRESS_STAGE_RANGES: Record<BrowserRustCompileStage, readonly [number, number]> = {
 	manifest: [0, 1],
 	'fetch-rustc': [1, 3],
@@ -140,14 +141,16 @@ function makeFailure(
 
 function attachCompileLogs(
 	result: BrowserRustCompilerResult,
-	logs: string[]
+	logs: string[],
+	logRecords: CompilerLogRecord[]
 ): BrowserRustCompilerResult {
-	if (logs.length === 0) {
+	if (logs.length === 0 && logRecords.length === 0) {
 		return result;
 	}
 	return {
 		...result,
-		logs
+		...(logs.length > 0 ? { logs } : {}),
+		...(logRecords.length > 0 ? { logRecords } : {})
 	};
 }
 
@@ -359,7 +362,7 @@ export async function compileRust(
 	const compileLogs: BufferedCompileLog[] = [];
 	const emitCompileLog = (
 		message: string,
-		level: 'log' | 'warn' | 'error' | 'debug' = 'log'
+		level: CompilerLogLevel = 'log'
 	) => {
 		if (!request.log) {
 			return;
@@ -380,7 +383,7 @@ export async function compileRust(
 	};
 	const recordPersistentCompileLog = (
 		message: string,
-		level: 'log' | 'warn' | 'error' | 'debug' = 'log'
+		level: CompilerLogLevel = 'log'
 	) => {
 		if (request.log) {
 			compileLogs.push({
@@ -441,6 +444,7 @@ export async function compileRust(
 		dependencies.sleep ||
 		((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
 	const readCompileLogs = () => (request.log ? compileLogs.map((entry) => entry.message) : []);
+	const readCompileLogRecords = () => (request.log ? [...compileLogs] : []);
 	const retryableFailurePatterns = [
 		'worker script error',
 		'failed to fetch dynamically imported module',
@@ -516,7 +520,7 @@ export async function compileRust(
 		const attemptCompileLogs: BufferedCompileLog[] = [];
 		const recordAttemptCompileLog = (
 			message: string,
-			level: 'log' | 'warn' | 'error' | 'debug' = 'log'
+			level: CompilerLogLevel = 'log'
 		) => {
 			attemptCompileLogs.push({
 				level,
@@ -719,7 +723,8 @@ export async function compileRust(
 						success: true,
 						artifact
 					},
-					readCompileLogs()
+					readCompileLogs(),
+					readCompileLogRecords()
 				);
 			}
 		}
@@ -784,7 +789,8 @@ export async function compileRust(
 						success: true,
 						artifact
 					},
-					readCompileLogs()
+					readCompileLogs(),
+					readCompileLogRecords()
 				);
 			}
 			if (mirrored.overflowed) {
@@ -843,7 +849,8 @@ export async function compileRust(
 								diagnostics: settledMessage.diagnostics,
 								artifact
 							},
-							readCompileLogs()
+							readCompileLogs(),
+							readCompileLogRecords()
 						);
 					} catch (error) {
 						recordAttemptCompileLog(
@@ -932,7 +939,8 @@ export async function compileRust(
 							diagnostics: settledMessage.diagnostics,
 							artifact
 						},
-						readCompileLogs()
+						readCompileLogs(),
+						readCompileLogRecords()
 					);
 				}
 			} else if (mirrored.overflowed) {
@@ -978,10 +986,10 @@ export async function compileRust(
 			});
 		} else {
 			flushAttemptCompileLogs(attemptCompileLogs);
-			return attachCompileLogs(attemptResult, readCompileLogs());
+			return attachCompileLogs(attemptResult, readCompileLogs(), readCompileLogRecords());
 		}
 		await sleep(Math.min(500 * attempt, 2_000));
 	}
 
-	return attachCompileLogs(lastFailure, readCompileLogs());
+	return attachCompileLogs(lastFailure, readCompileLogs(), readCompileLogRecords());
 }

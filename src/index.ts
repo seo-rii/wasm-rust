@@ -7,6 +7,8 @@ import {
 	type BrowserRustCompilerResult,
 	type BrowserRustCompileRequest,
 	type BrowserRustCompileStage,
+	type CompilerLogLevel,
+	type CompilerLogRecord,
 	type CompilerDiagnostic,
 	type CreateRustCompilerOptions,
 	type PreloadBrowserRustRuntimeOptions
@@ -24,6 +26,8 @@ export type {
 	BrowserRustCompileRequest,
 	BrowserRustCompileProgress,
 	BrowserRustCompileStage,
+	CompilerLogLevel,
+	CompilerLogRecord,
 	CompilerDiagnostic,
 	CreateRustCompilerOptions,
 	PreloadBrowserRustRuntimeOptions,

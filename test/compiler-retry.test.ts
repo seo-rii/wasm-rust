@@ -151,6 +151,18 @@ describe('compileRust retry behavior', () => {
 				'[wasm-rust:compiler-worker] second attempt ready'
 			])
 		);
+		expect(result.logRecords).toEqual(
+			expect.arrayContaining([
+				{
+					level: 'log',
+					message: '[wasm-rust:compiler-worker] first attempt warmup'
+				},
+				{
+					level: 'warn',
+					message: '[wasm-rust] browser rustc attempt 1/5 failed; retrying'
+				}
+			])
+		);
 		expect(result.logs?.indexOf('[wasm-rust:compiler-worker] first attempt warmup')).toBeLessThan(
 			result.logs?.indexOf('[wasm-rust] browser rustc attempt 1/5 failed; retrying') ?? -1
 		);
@@ -622,6 +634,18 @@ describe('compileRust retry behavior', () => {
 			'[wasm-rust:compiler-worker] start target=wasm32-wasip1 timeout=1000ms'
 		);
 		expect(result.logs).toContain('[wasm-rust:compiler-worker] rustc instance ready');
+		expect(result.logRecords).toEqual(
+			expect.arrayContaining([
+				{
+					level: 'log',
+					message: '[wasm-rust:compiler-worker] start target=wasm32-wasip1 timeout=1000ms'
+				},
+				{
+					level: 'log',
+					message: '[wasm-rust:compiler-worker] rustc instance ready'
+				}
+			])
+		);
 		expect(result.stdout).toBe('worker stdout\n');
 	});
 });

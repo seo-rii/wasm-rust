@@ -118,6 +118,7 @@ Important implications:
   crashes
 - if `compile()` returns `success: true`, the recovered path is considered valid
 - when `log: true` is enabled, compile-time browser-rustc logs are returned in `result.logs`
+  - `result.logRecords` exposes the same lines with preserved `level` metadata
   - consumers can forward those logs into their terminal before running the final wasm artifact
   - the browser console is no longer the only place to inspect retry/progress lines
 - when `onProgress` is provided, progress bar state should come from that callback instead of

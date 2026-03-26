@@ -170,6 +170,10 @@ Result shape:
   stdout?: string;
   stderr?: string;
   logs?: string[];
+  logRecords?: Array<{
+    level: 'log' | 'warn' | 'error' | 'debug';
+    message: string;
+  }>;
   diagnostics?: Array<{
     lineNumber: number;
     columnNumber: number;
