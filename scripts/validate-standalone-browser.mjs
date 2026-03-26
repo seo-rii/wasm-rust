@@ -11,25 +11,9 @@ const steps = [
 		args: ['run', 'test:ci:fast']
 	},
 	{
-		label: 'browser probe',
+		label: 'browser ci lane',
 		command: 'pnpm',
-		args: ['run', 'probe:browser-harness']
-	},
-	{
-		label: 'browser vitest',
-		command: 'pnpm',
-		args: ['exec', 'vitest', 'run', 'test/browser-harness.test.ts'],
-		env: {
-			WASM_RUST_RUN_REAL_BROWSER_HARNESS: '1'
-		}
-	},
-	{
-		label: 'browser playwright integration',
-		command: 'pnpm',
-		args: ['exec', 'vitest', 'run', 'test/browser-playwright-integration.test.ts'],
-		env: {
-			WASM_RUST_RUN_REAL_BROWSER_HARNESS: '1'
-		}
+		args: ['run', 'test:ci:browser']
 	}
 ];
 

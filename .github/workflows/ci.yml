@@ -34,5 +34,5 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Run CI Tests
-        run: pnpm run test:ci
+      - name: Run Standalone Browser Validation
+        run: pnpm run validate:standalone-browser

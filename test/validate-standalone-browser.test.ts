@@ -73,7 +73,7 @@ if (${JSON.stringify(failKey)} && args.join('\\u0000') === ${JSON.stringify(fail
 }
 
 describe('validate:standalone-browser script', () => {
-	it('runs the standalone validation steps in order and only sets the browser env for the vitest step', async () => {
+	it('runs the fast lane before the canonical browser ci lane', async () => {
 		const run = await runValidatorWithFakePnpm();
 
 		try {
@@ -84,16 +84,8 @@ describe('validate:standalone-browser script', () => {
 					browserHarnessEnv: null
 				},
 				{
-					args: ['run', 'probe:browser-harness'],
+					args: ['run', 'test:ci:browser'],
 					browserHarnessEnv: null
-				},
-				{
-					args: ['exec', 'vitest', 'run', 'test/browser-harness.test.ts'],
-					browserHarnessEnv: '1'
-				},
-				{
-					args: ['exec', 'vitest', 'run', 'test/browser-playwright-integration.test.ts'],
-					browserHarnessEnv: '1'
 				}
 			]);
 		} finally {
@@ -101,8 +93,8 @@ describe('validate:standalone-browser script', () => {
 		}
 	});
 
-	it('stops immediately when an intermediate validation step fails', async () => {
-		const run = await runValidatorWithFakePnpm(['run', 'probe:browser-harness']);
+	it('stops immediately when the canonical browser lane fails', async () => {
+		const run = await runValidatorWithFakePnpm(['run', 'test:ci:browser']);
 
 		try {
 			expect(run.error).toBeTruthy();
@@ -112,7 +104,7 @@ describe('validate:standalone-browser script', () => {
 					browserHarnessEnv: null
 				},
 				{
-					args: ['run', 'probe:browser-harness'],
+					args: ['run', 'test:ci:browser'],
 					browserHarnessEnv: null
 				}
 			]);

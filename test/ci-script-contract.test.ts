@@ -13,9 +13,16 @@ describe('ci script contract', () => {
 		) as {
 			scripts?: Record<string, string>;
 		};
+		const workflow = await readFile(path.join(projectRoot, '.github/workflows/ci.yml'), 'utf8');
 		const fastScript = packageJson.scripts?.['test:ci:fast'];
 
 		expect(packageJson.scripts?.['test:ci']).toBe('pnpm run test:ci:fast');
+		expect(packageJson.scripts?.['test:ci:browser']).toBe(
+			'pnpm run test:browser && pnpm run test:browser:vitest && pnpm run test:browser:playwright'
+		);
+		expect(packageJson.scripts?.['validate:standalone-browser']).toBe(
+			'node ./scripts/validate-standalone-browser.mjs'
+		);
 		expect(packageJson.scripts?.['build:all-compressed']).toBe(
 			'WASM_RUST_PRECOMPRESS_SCOPES=all pnpm run build'
 		);
@@ -33,5 +40,6 @@ describe('ci script contract', () => {
 		expect(fastScript).toContain('test/build-output.test.ts');
 		expect(fastScript).toContain('test/runtime-compression-config.test.ts');
 		expect(fastScript).toContain('test/rustc-runtime.test.ts');
+		expect(workflow).toContain('pnpm run validate:standalone-browser');
 	});
 });
