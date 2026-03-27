@@ -7,6 +7,7 @@ import type {
 	SharedRuntimeAssetFile
 } from './worker-protocol.js';
 import { createModuleWorker } from './module-worker.js';
+import { classifyRetryableFailureKind } from './retryable-failure-kind.js';
 import { resolveTargetManifest } from './runtime-manifest.js';
 import { buildPreopenedDirectories, instantiateRustcInstance } from './rustc-runtime.js';
 import {
@@ -402,14 +403,27 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 		exitCode = instantiated.wasiInstance.start(instance);
 	} catch (error) {
 		const stderrText = stderr.getText();
-		postMessage({
-			type: 'result',
-			exitCode,
-			stdout: stdout.getText(),
-			stderr:
-				stderrText +
-				(error instanceof Error ? `${stderrText ? '\n' : ''}${error.message}` : '')
-		} satisfies CompileWorkerMessage);
+		const combinedStderr =
+			stderrText +
+			(error instanceof Error ? `${stderrText ? '\n' : ''}${error.message}` : '');
+		const failureKind = classifyRetryableFailureKind(combinedStderr);
+		postMessage(
+			failureKind
+				? ({
+						type: 'error',
+						message: combinedStderr || 'browser rustc failed before producing LLVM bitcode',
+						failureKind,
+						exitCode,
+						stdout: stdout.getText(),
+						stderr: combinedStderr
+					} satisfies CompileWorkerMessage)
+				: ({
+						type: 'result',
+						exitCode,
+						stdout: stdout.getText(),
+						stderr: combinedStderr
+					} satisfies CompileWorkerMessage)
+		);
 		return;
 	}
 	emitCompileWorkerLog(
@@ -422,12 +436,26 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 		total: 1,
 		message: `rustc frontend finished with exit code ${String(exitCode)}`
 	});
-	postMessage({
-		type: 'result',
-		exitCode,
-		stdout: stdout.getText(),
-		stderr: stderr.getText()
-	} satisfies CompileWorkerMessage);
+	const stdoutText = stdout.getText();
+	const stderrText = stderr.getText();
+	const failureKind = exitCode === 0 ? null : classifyRetryableFailureKind(stderrText);
+	postMessage(
+		failureKind
+			? ({
+					type: 'error',
+					message: stderrText || 'browser rustc failed before producing LLVM bitcode',
+					failureKind,
+					exitCode,
+					stdout: stdoutText,
+					stderr: stderrText
+				} satisfies CompileWorkerMessage)
+			: ({
+					type: 'result',
+					exitCode,
+					stdout: stdoutText,
+					stderr: stderrText
+				} satisfies CompileWorkerMessage)
+	);
 }
 
 if (typeof globalThis.addEventListener === 'function') {
@@ -440,9 +468,12 @@ if (typeof globalThis.addEventListener === 'function') {
 			event.data,
 			`[wasm-rust:compiler-worker] unhandled failure ${error instanceof Error ? error.message : String(error)}`
 		);
+		const message = error instanceof Error ? error.message : String(error);
+		const failureKind = classifyRetryableFailureKind(message);
 		postMessage({
 			type: 'error',
-			message: error instanceof Error ? error.message : String(error)
+			message,
+			...(failureKind ? { failureKind } : {})
 			} satisfies CompileWorkerMessage);
 		});
 	});

@@ -2,6 +2,7 @@ import { resolveVersionedAssetUrl } from './asset-url.js';
 import { PREVIEW2_COMPONENT_RUNTIME_ASSETS } from './browser-component-tools.js';
 import { linkBitcodeWithLlvmWasm } from './browser-linker.js';
 import { createModuleWorker } from './module-worker.js';
+import { classifyRetryableFailureKind } from './retryable-failure-kind.js';
 import {
 	loadRuntimeManifest,
 	normalizeRuntimeManifest,
@@ -445,27 +446,6 @@ export async function compileRust(
 		((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
 	const readCompileLogs = () => (request.log ? compileLogs.map((entry) => entry.message) : []);
 	const readCompileLogRecords = () => (request.log ? [...compileLogs] : []);
-	const retryableFailurePatterns = [
-		'worker script error',
-		'failed to fetch dynamically imported module',
-		'importing a module script failed',
-		'memory access out of bounds',
-		'browser rustc timed out before producing llvm bitcode',
-		'operation does not support unaligned accesses',
-		'rustc browser thread pool exhausted',
-		'unreachable',
-		'browser rustc helper thread failed before producing llvm bitcode',
-		'invalid enum variant tag while decoding',
-		'found invalid metadata files for crate',
-		'failed to parse rlib',
-		"can't find crate for `std`",
-		'the compiler unexpectedly panicked'
-	];
-	const retryableFailureKinds: CompileWorkerFailureKind[] = [
-		'helper-thread',
-		'worker-bootstrap',
-		'compile-timeout'
-	];
 	emitCompileProgress('manifest', 1, {
 		completed: 0,
 		total: 1,
@@ -608,20 +588,14 @@ export async function compileRust(
 					workerResultConsumed = true;
 					const mirrored = readMirroredBitcode(sharedBitcodeBuffer);
 					if (raced.message.type === 'error') {
-						const normalizedWorkerFailureText = [
-							raced.message.message || '',
-							raced.message.stderr || ''
-						]
-							.join('\n')
-							.toLowerCase();
+						const workerFailureKind = classifyRetryableFailureKind(
+							[raced.message.message || '', raced.message.stderr || ''].join('\n')
+						);
 						const shouldDeferWorkerFailure =
 							mirrored.length === 0 &&
 							!mirrored.overflowed &&
 							mirrored.writeSequence > 0 &&
-							(raced.message.failureKind === 'helper-thread' ||
-								normalizedWorkerFailureText.includes(
-									'browser rustc helper thread failed before producing llvm bitcode'
-								));
+							(raced.message.failureKind === 'helper-thread' || workerFailureKind === 'helper-thread');
 						if (shouldDeferWorkerFailure) {
 							deferredWorkerError = raced.message;
 							pendingHelperThreadFailure =
@@ -872,11 +846,9 @@ export async function compileRust(
 				} else {
 					attemptFailureKind =
 						settledMessage.failureKind ||
-						((settledMessage.stderr || settledMessage.message)
-							.toLowerCase()
-							.includes('browser rustc helper thread failed before producing llvm bitcode')
-							? 'helper-thread'
-							: null);
+						classifyRetryableFailureKind(
+							[settledMessage.stderr || '', settledMessage.message || ''].join('\n')
+						);
 					attemptResult = makeFailure(
 						settledMessage.stderr || settledMessage.message,
 						settledMessage.diagnostics,
@@ -964,15 +936,10 @@ export async function compileRust(
 
 		lastFailure = attemptResult;
 		const attemptStderr = attemptResult.stderr || '';
-		const normalizedAttemptStderr = attemptStderr.toLowerCase();
+		const derivedRetryableFailureKind =
+			attemptFailureKind || classifyRetryableFailureKind(attemptStderr);
 		const shouldRetry =
-			attempt < maxBrowserAttempts &&
-			((attemptFailureKind !== null &&
-				retryableFailureKinds.includes(attemptFailureKind)) ||
-				(Boolean(attemptStderr) &&
-					retryableFailurePatterns.some((pattern) =>
-						normalizedAttemptStderr.includes(pattern)
-					)));
+			attempt < maxBrowserAttempts && derivedRetryableFailureKind !== null;
 		if (shouldRetry) {
 			flushAttemptCompileLogs(attemptCompileLogs, false);
 			recordPersistentCompileLog(

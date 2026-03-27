@@ -354,6 +354,41 @@ describe('compileRust retry behavior', () => {
 		expect(secondWorker.terminated).toBe(true);
 	});
 
+	it('retries when the worker provides a structured stale-runtime-metadata failure kind', async () => {
+		const bitcode = new Uint8Array([0xab, 0xcd, 0xef, 0x01]);
+		const firstWorker = new FakeWorker((_, worker) => {
+			worker.emitMessage({
+				type: 'error',
+				message: 'transient metadata decode mismatch',
+				failureKind: 'stale-runtime-metadata'
+			} as any);
+		});
+		const secondWorker = new FakeWorker((message) => {
+			mirrorBitcode(message.sharedBitcodeBuffer, bitcode);
+		});
+
+		const result = await compileRust(
+			{
+				code: 'fn main() { println!(\"hi\"); }',
+				edition: '2024',
+				crateType: 'bin'
+			},
+			{
+				...createRetryDependencies([firstWorker, secondWorker]).dependencies,
+				linkBitcode: async () => ({
+					wasm: new Uint8Array([2, 4, 6, 8]),
+					targetTriple: 'wasm32-wasip1',
+					format: 'core-wasm'
+				})
+			}
+		);
+
+		expect(result.success).toBe(true);
+		expect(result.artifact?.wasm).toEqual(new Uint8Array([2, 4, 6, 8]));
+		expect(firstWorker.terminated).toBe(true);
+		expect(secondWorker.terminated).toBe(true);
+	});
+
 	it('does not emit console errors for transient bootstrap failures that succeed on retry', async () => {
 		const bitcode = new Uint8Array([0xfa, 0xce, 0xb0, 0x0c]);
 		const firstWorker = new FakeWorker((_, worker) => {

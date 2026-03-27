@@ -30,7 +30,11 @@ export interface CompileWorkerSuccessMessage {
 export type CompileWorkerFailureKind =
 	| 'helper-thread'
 	| 'worker-bootstrap'
-	| 'compile-timeout';
+	| 'compile-timeout'
+	| 'runtime-trap'
+	| 'thread-pool-exhausted'
+	| 'stale-runtime-metadata'
+	| 'compiler-panicked';
 
 export interface CompileWorkerFailureMessage {
 	type: 'error';
