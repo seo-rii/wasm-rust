@@ -162,6 +162,10 @@ if (result.success && result.artifact) {
 }
 ```
 
+`executeBrowserRustArtifact()` defaults component runtime assets to the package-local
+`./runtime/` bundle. If a consumer hosts those assets elsewhere, pass an explicit third-argument
+override: `executeBrowserRustArtifact(result.artifact, runtimeBaseUrl, options)`.
+
 Result shape:
 
 ```ts

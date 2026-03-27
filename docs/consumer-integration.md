@@ -41,6 +41,15 @@ if (result.success && result.artifact) {
 }
 ```
 
+`executeBrowserRustArtifact()` uses the package-local `./runtime/` bundle by default. If your app
+serves those runtime assets from a different base URL, call the explicit overload instead:
+
+```ts
+await executeBrowserRustArtifact(result.artifact, runtimeBaseUrl, {
+	stdin: () => '7\n'
+});
+```
+
 Successful result shape:
 
 ```ts
@@ -120,7 +129,7 @@ Important implications:
 - when `log: true` is enabled, compile-time browser-rustc logs are returned in `result.logs`
   - `result.logRecords` exposes the same lines with preserved `level` metadata
   - consumers can forward those logs into their terminal before running the final wasm artifact
-  - the browser console is no longer the only place to inspect retry/progress lines
+  - the browser console is no longer the only place to inspect retry and worker log lines
 - when `onProgress` is provided, progress bar state should come from that callback instead of
   parsing stdout/log text
 

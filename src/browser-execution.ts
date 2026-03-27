@@ -3,6 +3,7 @@ import { PreopenDirectory } from '@bjorn3/browser_wasi_shim/dist/fs_mem.js';
 import WASI from '@bjorn3/browser_wasi_shim/dist/wasi.js';
 import * as wasi from '@bjorn3/browser_wasi_shim/dist/wasi_defs.js';
 
+import { resolveVersionedAssetUrl } from './asset-url.js';
 import {
 	createPreview2ImportObject,
 	transpilePreview2Component
@@ -266,16 +267,31 @@ async function runPreview2Component(
 	}
 }
 
-export async function executeBrowserRustArtifact(
+export function executeBrowserRustArtifact(
+	artifact: NonNullable<BrowserRustCompilerResult['artifact']>,
+	options?: BrowserExecutionOptions
+): Promise<BrowserExecutionResult>;
+export function executeBrowserRustArtifact(
 	artifact: NonNullable<BrowserRustCompilerResult['artifact']>,
 	runtimeBaseUrl: string,
+	options?: BrowserExecutionOptions
+): Promise<BrowserExecutionResult>;
+export async function executeBrowserRustArtifact(
+	artifact: NonNullable<BrowserRustCompilerResult['artifact']>,
+	runtimeBaseUrlOrOptions: string | BrowserExecutionOptions = {},
 	options: BrowserExecutionOptions = {}
 ) {
 	if (!artifact.wasm) {
 		throw new Error('wasm-rust artifact is missing wasm bytes');
 	}
+	const runtimeBaseUrl =
+		typeof runtimeBaseUrlOrOptions === 'string'
+			? runtimeBaseUrlOrOptions
+			: resolveVersionedAssetUrl(import.meta.url, './runtime/').toString();
+	const executionOptions =
+		typeof runtimeBaseUrlOrOptions === 'string' ? options : runtimeBaseUrlOrOptions;
 	if (artifact.format === 'component') {
-		return runPreview2Component(artifact.wasm, runtimeBaseUrl, options);
+		return runPreview2Component(artifact.wasm, runtimeBaseUrl, executionOptions);
 	}
-	return runPreview1WasiModule(artifact.wasm, options);
+	return runPreview1WasiModule(artifact.wasm, executionOptions);
 }

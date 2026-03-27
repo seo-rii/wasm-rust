@@ -163,7 +163,7 @@ Shipped mitigation:
 - when `compile({ log: true })` is used, compile-time browser-rustc log lines are returned through
   `result.logs`
   - the same data is also available as structured `result.logRecords` with preserved `level`
-  - this includes retry warnings and forwarded `compiler-worker` progress lines
+  - this includes retry warnings and forwarded `compiler-worker` log lines
   - consumers can forward those logs into their terminal surface without scraping browser console
 - `compile({ onProgress })` now receives structured stage/attempt/percent updates directly instead
   of inferring progress from mixed stdout text

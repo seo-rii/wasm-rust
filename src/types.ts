@@ -70,5 +70,7 @@ export interface BrowserRustCompiler {
 	compile: (request: BrowserRustCompileRequest) => Promise<BrowserRustCompilerResult>;
 }
 
-export type BrowserRustCompilerFactory = () => Promise<BrowserRustCompiler>;
+export type BrowserRustCompilerFactory = (
+	options?: import('./compiler.js').CreateRustCompilerOptions
+) => Promise<BrowserRustCompiler>;
 export type BrowserRustCompileWorkerRequest = Omit<BrowserRustCompileRequest, 'onProgress'>;
