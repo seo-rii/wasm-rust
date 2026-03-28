@@ -150,14 +150,14 @@ async function compileRustInWorker(request: CompileWorkerRequest) {
 			new Uint8Array(sharedBuffer).set(entry.bytes);
 			fetchedSysrootFiles += 1;
 			fetchedSysrootBytes += entry.bytes.byteLength;
-			emitCompileWorkerProgress(request, {
-				stage: 'fetch-sysroot',
-				completed: fetchedSysrootFiles,
-				total: sysrootAssetTotal,
-				message: `fetched sysroot asset ${entry.runtimePath}`,
-				bytesCompleted: fetchedSysrootBytes,
-				bytesTotal: target.sysrootPack?.totalBytes
-			});
+				emitCompileWorkerProgress(request, {
+					stage: 'fetch-sysroot',
+					completed: fetchedSysrootFiles,
+					total: sysrootAssetTotal,
+					message: `fetched sysroot asset ${entry.runtimePath}`,
+					bytesCompleted: fetchedSysrootBytes,
+					...(target.sysrootPack ? { bytesTotal: target.sysrootPack.totalBytes } : {})
+				});
 			if (
 				request.request.log &&
 				(fetchedSysrootFiles === 1 ||

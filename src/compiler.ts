@@ -178,9 +178,11 @@ export async function compileRust(
 				completed: safeCompleted,
 				total: safeTotal,
 				percent,
-				message: payload.message,
-				bytesCompleted: payload.bytesCompleted,
-				bytesTotal: payload.bytesTotal
+				...(payload.message !== undefined ? { message: payload.message } : {}),
+				...(payload.bytesCompleted !== undefined
+					? { bytesCompleted: payload.bytesCompleted }
+					: {}),
+				...(payload.bytesTotal !== undefined ? { bytesTotal: payload.bytesTotal } : {})
 			});
 		} catch {}
 	};
@@ -544,9 +546,13 @@ export async function compileRust(
 							return attachCompileLogs(
 								{
 									success: true,
-									stdout: settledMessage.stdout,
-									diagnostics: settledMessage.diagnostics,
-									artifact
+									artifact,
+									...(settledMessage.stdout !== undefined
+										? { stdout: settledMessage.stdout }
+										: {}),
+									...(settledMessage.diagnostics
+										? { diagnostics: settledMessage.diagnostics }
+										: {})
 								},
 								readCompileLogs(),
 								readCompileLogRecords()
@@ -632,9 +638,13 @@ export async function compileRust(
 						return attachCompileLogs(
 							{
 								success: true,
-								stdout: settledMessage.stdout,
-								diagnostics: settledMessage.diagnostics,
-								artifact
+								artifact,
+								...(settledMessage.stdout !== undefined
+									? { stdout: settledMessage.stdout }
+									: {}),
+								...(settledMessage.diagnostics
+									? { diagnostics: settledMessage.diagnostics }
+									: {})
 							},
 							readCompileLogs(),
 							readCompileLogRecords()

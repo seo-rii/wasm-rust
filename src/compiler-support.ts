@@ -47,9 +47,9 @@ export function makeFailure(
 ): BrowserRustCompilerResult {
 	return {
 		success: false,
-		stdout,
 		stderr,
-		diagnostics,
+		...(stdout !== undefined ? { stdout } : {}),
+		...(diagnostics ? { diagnostics } : {}),
 		...(logs && logs.length > 0 ? { logs } : {})
 	};
 }

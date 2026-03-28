@@ -192,12 +192,16 @@ export async function createPreview2ImportObject(
 		for (const requestedImport of options.requiredImports) {
 			const versionMatch = requestedImport.match(/(@.+)$/);
 			if (versionMatch) {
-				if (!/^@0\.2(?:\.|$)/.test(versionMatch[1])) {
+				const versionSuffix = versionMatch[1];
+				if (!versionSuffix) {
+					continue;
+				}
+				if (!/^@0\.2(?:\.|$)/.test(versionSuffix)) {
 					throw new Error(
 						`wasm-rust browser runtime currently provides only WASIp2 browser shims; unsupported component import ${requestedImport}. wasm32-wasip3 works in-browser only while emitted components stay on transitional WASIp2 imports.`
 					);
 				}
-				requestedVersionSuffixes.add(versionMatch[1]);
+				requestedVersionSuffixes.add(versionSuffix);
 			}
 			const normalizedImport = requestedImport.replace(/@\d+(?:\.\d+)*$/, '');
 			if (normalizedImport.startsWith('wasi:cli/')) {

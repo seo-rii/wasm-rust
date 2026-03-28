@@ -198,14 +198,18 @@ async function runPreview2Component(
 	if (!entryName) {
 		throw new Error('jco transpile did not generate a JavaScript entry file');
 	}
-	const entrySource = new TextDecoder().decode(transpiled.files.get(entryName));
+	const entryFile = transpiled.files.get(entryName);
+	if (!entryFile) {
+		throw new Error(`jco transpile produced a missing entry asset: ${entryName}`);
+	}
+	const entrySource = new TextDecoder().decode(entryFile);
 	const entryUrl = URL.createObjectURL(
 		new Blob([entrySource], { type: 'text/javascript;charset=utf-8' })
 	);
 	const imports = await createPreview2ImportObject(runtimeBaseUrl, {
 		args: ['component.wasm', ...(options.args || [])],
-		env: options.env,
 		requiredImports: transpiled.imports,
+		...(options.env ? { env: options.env } : {}),
 		stdin: {
 			blockingRead(length: number) {
 				return stdin.read(length);
