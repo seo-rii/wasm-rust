@@ -7,6 +7,7 @@ import { gunzipSync } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
 
+import { createRuntimeManifest, createRuntimeManifestV2, createRuntimeManifestV3 } from './helpers.js';
 import {
 	distRoot as prepareRuntimeDistRoot,
 	isReusablePrebuiltRuntimeBundle,
@@ -138,69 +139,111 @@ describe('prepare-runtime defaults', () => {
 		);
 	});
 
-	it('accepts a prebuilt runtime bundle only when the v3 manifest and referenced assets are present', async () => {
-		const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wasm-rust-runtime-fallback-'));
-		const tempRuntimeRoot = path.join(tempRoot, 'runtime');
-		await fs.mkdir(path.join(tempRuntimeRoot, 'rustc'), { recursive: true });
-		await fs.mkdir(path.join(tempRuntimeRoot, 'llvm'), { recursive: true });
-		await fs.mkdir(path.join(tempRuntimeRoot, 'packs', 'sysroot'), { recursive: true });
-		await fs.mkdir(path.join(tempRuntimeRoot, 'packs', 'link'), { recursive: true });
-		await fs.writeFile(path.join(tempRuntimeRoot, 'rustc', 'rustc.wasm.gz'), 'rustc');
-		await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'llc.js'), 'llc');
-		await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'llc.wasm.gz'), 'llc wasm');
-		await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'lld.js'), 'lld');
-		await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'lld.wasm.gz'), 'lld wasm');
-		await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'lld.data.gz'), 'lld data');
-		await fs.writeFile(path.join(tempRuntimeRoot, 'packs', 'sysroot', 'wasm32-wasip1.pack.gz'), 'pack');
-		await fs.writeFile(
-			path.join(tempRuntimeRoot, 'packs', 'sysroot', 'wasm32-wasip1.index.json.gz'),
-			'index'
-		);
-		await fs.writeFile(path.join(tempRuntimeRoot, 'packs', 'link', 'wasm32-wasip1.pack.gz'), 'pack');
-		await fs.writeFile(
-			path.join(tempRuntimeRoot, 'packs', 'link', 'wasm32-wasip1.index.json.gz'),
-			'index'
-		);
-		await fs.writeFile(
-			path.join(tempRuntimeRoot, 'runtime-manifest.v3.json'),
-			JSON.stringify(
-				{
-					manifestVersion: 3,
-					compiler: {
-						rustcWasm: 'rustc/rustc.wasm.gz'
-					},
-					targets: {
-						'wasm32-wasip1': {
-							sysrootPack: {
-								asset: 'packs/sysroot/wasm32-wasip1.pack.gz',
-								index: 'packs/sysroot/wasm32-wasip1.index.json.gz'
-							},
-							compile: {
-								llvm: {
-									llc: 'llvm/llc.js',
-									llcWasm: 'llvm/llc.wasm.gz',
-									lld: 'llvm/lld.js',
-									lldWasm: 'llvm/lld.wasm.gz',
-									lldData: 'llvm/lld.data.gz'
-								},
-								link: {
-									pack: {
-										asset: 'packs/link/wasm32-wasip1.pack.gz',
-										index: 'packs/link/wasm32-wasip1.index.json.gz'
-									}
-								}
-							}
-						}
-					}
-				},
-				null,
-				2
-			)
-		);
+	it('accepts a prebuilt runtime bundle only when supported manifest assets are present', async () => {
+		for (const [manifestFileName, manifestContents, missingAssetRelativePath] of [
+			[
+				'runtime-manifest.json',
+				createRuntimeManifest(),
+				'link/alloc.o'
+			],
+			[
+				'runtime-manifest.v2.json',
+				createRuntimeManifestV2(),
+				'sysroot/lib/rustlib/wasm32-wasip1/lib/libstd.rlib'
+			],
+			[
+				'runtime-manifest.v3.json',
+				createRuntimeManifestV3(),
+				'packs/link/wasm32-wasip1.index.json.gz'
+			]
+		] as const) {
+			const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wasm-rust-runtime-fallback-'));
+			const tempRuntimeRoot = path.join(tempRoot, 'runtime');
+			await fs.mkdir(path.join(tempRuntimeRoot, 'rustc'), { recursive: true });
+			await fs.mkdir(path.join(tempRuntimeRoot, 'llvm'), { recursive: true });
+			await fs.mkdir(path.join(tempRuntimeRoot, 'link'), { recursive: true });
+			await fs.mkdir(path.join(tempRuntimeRoot, 'packs', 'sysroot'), { recursive: true });
+			await fs.mkdir(path.join(tempRuntimeRoot, 'packs', 'link'), { recursive: true });
+			await fs.mkdir(path.join(tempRuntimeRoot, 'sysroot', 'lib', 'rustlib', 'wasm32-wasip1', 'lib'), {
+				recursive: true
+			});
+			await fs.mkdir(path.join(tempRuntimeRoot, 'sysroot', 'lib', 'rustlib', 'wasm32-wasip2', 'lib'), {
+				recursive: true
+			});
+			await fs.mkdir(path.join(tempRuntimeRoot, 'sysroot', 'lib', 'rustlib', 'wasm32-wasip3', 'lib'), {
+				recursive: true
+			});
+			await fs.writeFile(path.join(tempRuntimeRoot, 'rustc', 'rustc.wasm'), 'rustc');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'rustc', 'rustc.wasm.gz'), 'rustc');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'llc.js'), 'llc');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'llc.wasm'), 'llc wasm');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'llc.wasm.gz'), 'llc wasm');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'lld.js'), 'lld');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'lld.wasm'), 'lld wasm');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'lld.wasm.gz'), 'lld wasm');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'lld.data'), 'lld data');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'llvm', 'lld.data.gz'), 'lld data');
+			await fs.writeFile(path.join(tempRuntimeRoot, 'link', 'alloc.o'), 'alloc');
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'sysroot', 'wasm32-wasip1.pack.gz'),
+				'pack'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'sysroot', 'wasm32-wasip1.index.json.gz'),
+				'index'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'sysroot', 'wasm32-wasip2.pack.gz'),
+				'pack'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'sysroot', 'wasm32-wasip2.index.json.gz'),
+				'index'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'sysroot', 'wasm32-wasip3.pack.gz'),
+				'pack'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'sysroot', 'wasm32-wasip3.index.json.gz'),
+				'index'
+			);
+			await fs.writeFile(path.join(tempRuntimeRoot, 'packs', 'link', 'wasm32-wasip1.pack.gz'), 'pack');
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'link', 'wasm32-wasip1.index.json.gz'),
+				'index'
+			);
+			await fs.writeFile(path.join(tempRuntimeRoot, 'packs', 'link', 'wasm32-wasip2.pack.gz'), 'pack');
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'link', 'wasm32-wasip2.index.json.gz'),
+				'index'
+			);
+			await fs.writeFile(path.join(tempRuntimeRoot, 'packs', 'link', 'wasm32-wasip3.pack.gz'), 'pack');
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'packs', 'link', 'wasm32-wasip3.index.json.gz'),
+				'index'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'sysroot', 'lib', 'rustlib', 'wasm32-wasip1', 'lib', 'libstd.rlib'),
+				'std'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'sysroot', 'lib', 'rustlib', 'wasm32-wasip2', 'lib', 'libstd.rlib'),
+				'std'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, 'sysroot', 'lib', 'rustlib', 'wasm32-wasip3', 'lib', 'libstd.rlib'),
+				'std'
+			);
+			await fs.writeFile(
+				path.join(tempRuntimeRoot, manifestFileName),
+				JSON.stringify(manifestContents, null, 2)
+			);
 
-		expect(await isReusablePrebuiltRuntimeBundle(tempRuntimeRoot)).toBe(true);
-		await fs.rm(path.join(tempRuntimeRoot, 'llvm', 'lld.data.gz'));
-		expect(await isReusablePrebuiltRuntimeBundle(tempRuntimeRoot)).toBe(false);
+			expect(await isReusablePrebuiltRuntimeBundle(tempRuntimeRoot)).toBe(true);
+			await fs.rm(path.join(tempRuntimeRoot, missingAssetRelativePath));
+			expect(await isReusablePrebuiltRuntimeBundle(tempRuntimeRoot)).toBe(false);
+		}
 	});
 });
 

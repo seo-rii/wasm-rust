@@ -161,80 +161,135 @@ async function pathExists(targetPath) {
 }
 
 async function isReusablePrebuiltRuntimeBundle(runtimeRootPath) {
-	const manifestPath = path.join(runtimeRootPath, 'runtime-manifest.v3.json');
-	let manifest;
-	try {
-		manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-	} catch {
-		return false;
+	let manifest = null;
+	let manifestVersion = 0;
+	for (const [candidateVersion, manifestFileName] of [
+		[3, 'runtime-manifest.v3.json'],
+		[2, 'runtime-manifest.v2.json'],
+		[1, 'runtime-manifest.json']
+	]) {
+		try {
+			manifest = JSON.parse(await fs.readFile(path.join(runtimeRootPath, manifestFileName), 'utf8'));
+			manifestVersion = candidateVersion;
+			break;
+		} catch {}
 	}
-	const targets = Object.values(manifest.targets || {});
-	if (targets.length === 0) {
+	if (!manifest) {
 		return false;
 	}
 	const referencedAssets = new Set();
-	if (typeof manifest.compiler?.rustcWasm !== 'string' || manifest.compiler.rustcWasm.length === 0) {
-		return false;
-	}
-	referencedAssets.add(manifest.compiler.rustcWasm);
-	for (const targetConfig of targets) {
-		if (typeof targetConfig?.compile?.llvm?.llc !== 'string' || targetConfig.compile.llvm.llc.length === 0) {
+	if (manifestVersion === 1) {
+		if (typeof manifest.rustcWasm !== 'string' || manifest.rustcWasm.length === 0) {
 			return false;
 		}
-		if (
-			typeof targetConfig.compile.llvm.llcWasm !== 'string' ||
-			targetConfig.compile.llvm.llcWasm.length === 0
-		) {
+		if (typeof manifest.llvm?.llc !== 'string' || manifest.llvm.llc.length === 0) {
 			return false;
 		}
-		if (typeof targetConfig.compile.llvm.lld !== 'string' || targetConfig.compile.llvm.lld.length === 0) {
+		if (typeof manifest.llvm?.lld !== 'string' || manifest.llvm.lld.length === 0) {
 			return false;
 		}
-		if (
-			typeof targetConfig.compile.llvm.lldWasm !== 'string' ||
-			targetConfig.compile.llvm.lldWasm.length === 0
-		) {
+		if (!Array.isArray(manifest.sysrootFiles) || manifest.sysrootFiles.length === 0) {
 			return false;
 		}
-		if (
-			typeof targetConfig.compile.llvm.lldData !== 'string' ||
-			targetConfig.compile.llvm.lldData.length === 0
-		) {
+		if (!Array.isArray(manifest.link?.files) || manifest.link.files.length === 0) {
 			return false;
 		}
-		if (
-			typeof targetConfig.sysrootPack?.asset !== 'string' ||
-			targetConfig.sysrootPack.asset.length === 0
-		) {
+		referencedAssets.add(manifest.rustcWasm);
+		referencedAssets.add(manifest.llvm.llc);
+		referencedAssets.add(manifest.llvm.llcWasm || 'llvm/llc.wasm');
+		referencedAssets.add(manifest.llvm.lld);
+		referencedAssets.add(manifest.llvm.lldWasm || 'llvm/lld.wasm');
+		referencedAssets.add(manifest.llvm.lldData || 'llvm/lld.data');
+		if (typeof manifest.link.allocatorObjectAsset === 'string' && manifest.link.allocatorObjectAsset.length > 0) {
+			referencedAssets.add(manifest.link.allocatorObjectAsset);
+		}
+		for (const assetFile of manifest.sysrootFiles) {
+			if (typeof assetFile?.asset !== 'string' || assetFile.asset.length === 0) {
+				return false;
+			}
+			referencedAssets.add(assetFile.asset);
+		}
+		for (const assetFile of manifest.link.files) {
+			if (typeof assetFile?.asset !== 'string' || assetFile.asset.length === 0) {
+				return false;
+			}
+			referencedAssets.add(assetFile.asset);
+		}
+	} else {
+		const targets = Object.values(manifest.targets || {});
+		if (targets.length === 0) {
 			return false;
 		}
-		if (
-			typeof targetConfig.sysrootPack.index !== 'string' ||
-			targetConfig.sysrootPack.index.length === 0
-		) {
+		if (typeof manifest.compiler?.rustcWasm !== 'string' || manifest.compiler.rustcWasm.length === 0) {
 			return false;
 		}
-		if (
-			typeof targetConfig.compile.link?.pack?.asset !== 'string' ||
-			targetConfig.compile.link.pack.asset.length === 0
-		) {
-			return false;
+		referencedAssets.add(manifest.compiler.rustcWasm);
+		for (const targetConfig of targets) {
+			if (typeof targetConfig?.compile?.llvm?.llc !== 'string' || targetConfig.compile.llvm.llc.length === 0) {
+				return false;
+			}
+			if (typeof targetConfig.compile.llvm.lld !== 'string' || targetConfig.compile.llvm.lld.length === 0) {
+				return false;
+			}
+			referencedAssets.add(targetConfig.compile.llvm.llc);
+			referencedAssets.add(targetConfig.compile.llvm.llcWasm || 'llvm/llc.wasm');
+			referencedAssets.add(targetConfig.compile.llvm.lld);
+			referencedAssets.add(targetConfig.compile.llvm.lldWasm || 'llvm/lld.wasm');
+			referencedAssets.add(targetConfig.compile.llvm.lldData || 'llvm/lld.data');
+			if (targetConfig.sysrootPack) {
+				if (
+					typeof targetConfig.sysrootPack.asset !== 'string' ||
+					targetConfig.sysrootPack.asset.length === 0 ||
+					typeof targetConfig.sysrootPack.index !== 'string' ||
+					targetConfig.sysrootPack.index.length === 0
+				) {
+					return false;
+				}
+				referencedAssets.add(targetConfig.sysrootPack.asset);
+				referencedAssets.add(targetConfig.sysrootPack.index);
+			} else {
+				if (!Array.isArray(targetConfig.sysrootFiles) || targetConfig.sysrootFiles.length === 0) {
+					return false;
+				}
+				for (const assetFile of targetConfig.sysrootFiles) {
+					if (typeof assetFile?.asset !== 'string' || assetFile.asset.length === 0) {
+						return false;
+					}
+					referencedAssets.add(assetFile.asset);
+				}
+			}
+			if (targetConfig.compile.link?.pack) {
+				if (
+					typeof targetConfig.compile.link.pack.asset !== 'string' ||
+					targetConfig.compile.link.pack.asset.length === 0 ||
+					typeof targetConfig.compile.link.pack.index !== 'string' ||
+					targetConfig.compile.link.pack.index.length === 0
+				) {
+					return false;
+				}
+				referencedAssets.add(targetConfig.compile.link.pack.asset);
+				referencedAssets.add(targetConfig.compile.link.pack.index);
+			} else {
+				if (
+					typeof targetConfig.compile.link?.allocatorObjectAsset === 'string' &&
+					targetConfig.compile.link.allocatorObjectAsset.length > 0
+				) {
+					referencedAssets.add(targetConfig.compile.link.allocatorObjectAsset);
+				}
+				if (
+					!Array.isArray(targetConfig.compile.link?.files) ||
+					targetConfig.compile.link.files.length === 0
+				) {
+					return false;
+				}
+				for (const assetFile of targetConfig.compile.link.files) {
+					if (typeof assetFile?.asset !== 'string' || assetFile.asset.length === 0) {
+						return false;
+					}
+					referencedAssets.add(assetFile.asset);
+				}
+			}
 		}
-		if (
-			typeof targetConfig.compile.link.pack.index !== 'string' ||
-			targetConfig.compile.link.pack.index.length === 0
-		) {
-			return false;
-		}
-		referencedAssets.add(targetConfig.compile.llvm.llc);
-		referencedAssets.add(targetConfig.compile.llvm.llcWasm);
-		referencedAssets.add(targetConfig.compile.llvm.lld);
-		referencedAssets.add(targetConfig.compile.llvm.lldWasm);
-		referencedAssets.add(targetConfig.compile.llvm.lldData);
-		referencedAssets.add(targetConfig.sysrootPack.asset);
-		referencedAssets.add(targetConfig.sysrootPack.index);
-		referencedAssets.add(targetConfig.compile.link.pack.asset);
-		referencedAssets.add(targetConfig.compile.link.pack.index);
 	}
 	for (const relativePath of referencedAssets) {
 		if (!(await pathExists(path.join(runtimeRootPath, relativePath)))) {
