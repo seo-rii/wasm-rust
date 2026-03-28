@@ -436,7 +436,7 @@ export async function compileRust(
 					`[wasm-rust] compile worker bootstrap failed ${workerBootstrapError.message}`,
 					'debug'
 				);
-				attemptFailureKind = 'worker-bootstrap';
+				attemptFailureKind = classifyRetryableFailureKind(workerBootstrapError.message);
 				attemptResult = makeFailure(workerBootstrapError.message);
 			}
 
