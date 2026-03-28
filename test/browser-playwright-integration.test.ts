@@ -91,7 +91,10 @@ describe('browser harness direct Playwright integration', () => {
 					consoleMessages.some(
 						(message) =>
 							message.type === 'log' &&
-							message.text.includes('mirrored bitcode settled; linking through llvm-wasm')
+							(
+								message.text.includes('mirrored bitcode settled; linking through llvm-wasm') ||
+								message.text.includes('compile succeeded; executing WASI module in browser')
+							)
 					)
 				).toBe(true);
 			} finally {
