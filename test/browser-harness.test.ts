@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { resolveHarnessTargetTriples } from '../scripts/browser-harness-runtime.mjs';
+
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -111,6 +113,10 @@ describe('browser harness probe', () => {
 		'compiles and runs the richer wasm-idle wasip2 sample in Chromium',
 		async () => {
 			if (process.env.WASM_RUST_RUN_REAL_BROWSER_HARNESS !== '1') {
+				return;
+			}
+			const availableTargetTriples = await resolveHarnessTargetTriples(projectRoot);
+			if (!availableTargetTriples.includes('wasm32-wasip2')) {
 				return;
 			}
 
