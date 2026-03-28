@@ -1,14 +1,18 @@
-import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright-core';
 
+import {
+	isBrowserHarnessProbeSuccessful,
+	resolveChromiumExecutable,
+	resolveHarnessTargetTriples
+} from './browser-harness-runtime.mjs';
 import { startBrowserHarnessServer } from './browser-harness-server.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sampleProgram = process.env.WASM_RUST_SAMPLE_PROGRAM || 'fn main() { println!("hi"); }';
+const expectedStdout = process.env.WASM_RUST_BROWSER_HARNESS_EXPECT_STDOUT;
 const compileTimeoutMs = process.env.WASM_RUST_BROWSER_HARNESS_COMPILE_TIMEOUT_MS
 	? Number(process.env.WASM_RUST_BROWSER_HARNESS_COMPILE_TIMEOUT_MS)
 	: undefined;
@@ -25,74 +29,12 @@ const runTimeoutMs = Number(
 	process.env.WASM_RUST_BROWSER_HARNESS_RUN_TIMEOUT_MS ||
 		String((compileTimeoutMs ?? 120000) + 120000)
 );
-const chromiumExecutable = process.env.WASM_RUST_CHROMIUM_EXECUTABLE;
-
-function parseTargetTripleList(value) {
-	return [...new Set(value.split(',').map((entry) => entry.trim()).filter(Boolean))];
-}
-
-async function resolveHarnessTargetTriples() {
-	if (process.env.WASM_RUST_BROWSER_HARNESS_TARGET_TRIPLES) {
-		return parseTargetTripleList(process.env.WASM_RUST_BROWSER_HARNESS_TARGET_TRIPLES);
-	}
-	const runtimeManifestV2Path = path.join(
-		projectRoot,
-		'dist',
-		'runtime',
-		'runtime-manifest.v3.json'
-	);
-	try {
-		const manifest = JSON.parse(await fs.readFile(runtimeManifestV2Path, 'utf8'));
-		const targets = Object.keys(manifest.targets || {});
-		if (targets.length > 0) {
-			return targets;
-		}
-	} catch {}
-	const runtimeManifestV2FallbackPath = path.join(
-		projectRoot,
-		'dist',
-		'runtime',
-		'runtime-manifest.v2.json'
-	);
-	try {
-		const manifest = JSON.parse(await fs.readFile(runtimeManifestV2FallbackPath, 'utf8'));
-		const targets = Object.keys(manifest.targets || {});
-		if (targets.length > 0) {
-			return targets;
-		}
-	} catch {}
-	const runtimeManifestV1Path = path.join(
-		projectRoot,
-		'dist',
-		'runtime',
-		'runtime-manifest.json'
-	);
-	const legacyManifest = JSON.parse(await fs.readFile(runtimeManifestV1Path, 'utf8'));
-	return [legacyManifest.targetTriple || 'wasm32-wasip1'];
-}
-
-async function resolveChromiumExecutable() {
-	if (chromiumExecutable) {
-		return chromiumExecutable;
-	}
-	const cacheRoot = path.join(os.homedir(), '.cache', 'ms-playwright');
-	const entries = await fs.readdir(cacheRoot, { withFileTypes: true });
-	const chromiumFolder = entries
-		.filter((entry) => entry.isDirectory() && entry.name.startsWith('chromium-'))
-		.map((entry) => entry.name)
-		.sort()
-		.at(-1);
-	if (!chromiumFolder) {
-		throw new Error('failed to locate a cached Chromium build under ~/.cache/ms-playwright');
-	}
-	return path.join(cacheRoot, chromiumFolder, 'chrome-linux64', 'chrome');
-}
 
 async function main() {
 	const server = await startBrowserHarnessServer();
 	const consoleMessages = [];
 	const pageErrors = [];
-	const targetTriples = await resolveHarnessTargetTriples();
+	const targetTriples = await resolveHarnessTargetTriples(projectRoot);
 	let browser;
 
 	try {
@@ -187,16 +129,11 @@ async function main() {
 		}
 
 		const output = {
-			success: targetResults.every(
-				(entry) =>
-					entry.ok &&
-					Boolean(entry.result.compile?.success) &&
-					entry.result.runtime?.exitCode === 0 &&
-					entry.result.runtime?.stdout === 'hi\n'
-			),
+			success: isBrowserHarnessProbeSuccessful(targetResults, expectedStdout),
 			harnessUrl,
 			executablePath,
 			runTimeoutMs,
+			expectedStdout: expectedStdout ?? null,
 			targets: targetResults,
 			result: targetResults[0]?.result || null,
 			consoleMessages,

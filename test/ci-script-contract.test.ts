@@ -12,9 +12,12 @@ describe('ci script contract', () => {
 			await readFile(path.join(projectRoot, 'package.json'), 'utf8')
 		) as {
 			scripts?: Record<string, string>;
+			devDependencies?: Record<string, string>;
 		};
 		const workflow = await readFile(path.join(projectRoot, '.github/workflows/ci.yml'), 'utf8');
 		const fastScript = packageJson.scripts?.['test:ci:fast'];
+		const playwrightVersion =
+			packageJson.devDependencies?.['playwright-core']?.replace(/^[^\d]*/, '') || '';
 
 		expect(packageJson.scripts?.['test:ci']).toBe('pnpm run test:ci:fast');
 		expect(packageJson.scripts?.['test:ci:browser']).toBe(
@@ -40,6 +43,9 @@ describe('ci script contract', () => {
 		expect(fastScript).toContain('test/build-output.test.ts');
 		expect(fastScript).toContain('test/runtime-compression-config.test.ts');
 		expect(fastScript).toContain('test/rustc-runtime.test.ts');
+		expect(workflow).toContain(
+			`pnpm dlx playwright@${playwrightVersion} install --with-deps chromium`
+		);
 		expect(workflow).toContain('pnpm run validate:standalone-browser');
 	});
 });

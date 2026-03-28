@@ -1,67 +1,20 @@
-import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright-core';
 import { describe, expect, it } from 'vitest';
 
+import {
+	resolveChromiumExecutable,
+	resolveHarnessTargetTriples
+} from '../scripts/browser-harness-runtime.mjs';
 import { startBrowserHarnessServer } from '../scripts/browser-harness-server.mjs';
 
 const sampleProgram = process.env.WASM_RUST_SAMPLE_PROGRAM || 'fn main() { println!("hi"); }';
 const runTimeoutMs = Number(
 	process.env.WASM_RUST_BROWSER_HARNESS_RUN_TIMEOUT_MS || String(120000 + 120000)
 );
-const chromiumExecutable = process.env.WASM_RUST_CHROMIUM_EXECUTABLE;
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-async function resolveChromiumExecutable() {
-	if (chromiumExecutable) {
-		return chromiumExecutable;
-	}
-	const cacheRoot = path.join(os.homedir(), '.cache', 'ms-playwright');
-	const entries = await fs.readdir(cacheRoot, { withFileTypes: true });
-	const chromiumFolder = entries
-		.filter((entry) => entry.isDirectory() && entry.name.startsWith('chromium-'))
-		.map((entry) => entry.name)
-		.sort()
-		.at(-1);
-	if (!chromiumFolder) {
-		throw new Error('failed to locate a cached Chromium build under ~/.cache/ms-playwright');
-	}
-	return path.join(cacheRoot, chromiumFolder, 'chrome-linux64', 'chrome');
-}
-
-async function resolveHarnessTargetTriples() {
-	try {
-		const manifest = JSON.parse(
-			await fs.readFile(
-				path.join(projectRoot, 'dist', 'runtime', 'runtime-manifest.v3.json'),
-				'utf8'
-			)
-		);
-		const targets = Object.keys(manifest.targets || {});
-		if (targets.length > 0) {
-			return targets;
-		}
-	} catch {}
-	try {
-		const manifest = JSON.parse(
-			await fs.readFile(
-				path.join(projectRoot, 'dist', 'runtime', 'runtime-manifest.v2.json'),
-				'utf8'
-			)
-		);
-		const targets = Object.keys(manifest.targets || {});
-		if (targets.length > 0) {
-			return targets;
-		}
-	} catch {}
-	const legacyManifest = JSON.parse(
-		await fs.readFile(path.join(projectRoot, 'dist', 'runtime', 'runtime-manifest.json'), 'utf8')
-	);
-	return [legacyManifest.targetTriple || 'wasm32-wasip1'];
-}
 
 describe('browser harness direct Playwright integration', () => {
 	it(
@@ -97,7 +50,7 @@ describe('browser harness direct Playwright integration', () => {
 					waitUntil: 'domcontentloaded'
 				});
 				await page.waitForFunction(() => typeof window.runWasmRustHarness === 'function');
-				const targetTriples = await resolveHarnessTargetTriples();
+				const targetTriples = await resolveHarnessTargetTriples(projectRoot);
 				expect(targetTriples.length).toBeGreaterThan(0);
 				for (const targetTriple of targetTriples) {
 					const result = await page.evaluate(

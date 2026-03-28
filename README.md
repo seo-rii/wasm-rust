@@ -22,7 +22,7 @@ with the upstream-required `libc` patch.
   - module exports `default`, `createRustCompiler`, `preloadBrowserRustRuntime`, and
     `executeBrowserRustArtifact`
   - factory returns `{ compile(request) }`
-  - `compile()` resolves to `{ success, stdout?, stderr?, diagnostics?, logs?, artifact }`
+  - `compile()` resolves to `{ success, stdout?, stderr?, diagnostics?, logs?, logRecords?, artifact }`
   - `artifact` contains `wasm`, `targetTriple`, and `format`
 
 Current scope:
