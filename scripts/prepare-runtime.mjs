@@ -52,6 +52,8 @@ const defaultTargetTriple = parseTargetTriple(
 	'WASM_RUST_DEFAULT_TARGET_TRIPLE'
 );
 const allowMissingTargets = process.env.WASM_RUST_ALLOW_MISSING_TARGETS !== '0';
+const allowPrebuiltRuntimeFallback =
+	process.env.WASM_RUST_ALLOW_PREBUILT_RUNTIME_FALLBACK === '1';
 const hostTriple = process.env.WASM_RUST_HOST_TRIPLE || 'x86_64-unknown-linux-gnu';
 const sampleProgram =
 	process.env.WASM_RUST_SAMPLE_PROGRAM || 'fn main() { println!("hi"); }';
@@ -156,6 +158,90 @@ async function pathExists(targetPath) {
 	} catch {
 		return false;
 	}
+}
+
+async function isReusablePrebuiltRuntimeBundle(runtimeRootPath) {
+	const manifestPath = path.join(runtimeRootPath, 'runtime-manifest.v3.json');
+	let manifest;
+	try {
+		manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+	} catch {
+		return false;
+	}
+	const targets = Object.values(manifest.targets || {});
+	if (targets.length === 0) {
+		return false;
+	}
+	const referencedAssets = new Set();
+	if (typeof manifest.compiler?.rustcWasm !== 'string' || manifest.compiler.rustcWasm.length === 0) {
+		return false;
+	}
+	referencedAssets.add(manifest.compiler.rustcWasm);
+	for (const targetConfig of targets) {
+		if (typeof targetConfig?.compile?.llvm?.llc !== 'string' || targetConfig.compile.llvm.llc.length === 0) {
+			return false;
+		}
+		if (
+			typeof targetConfig.compile.llvm.llcWasm !== 'string' ||
+			targetConfig.compile.llvm.llcWasm.length === 0
+		) {
+			return false;
+		}
+		if (typeof targetConfig.compile.llvm.lld !== 'string' || targetConfig.compile.llvm.lld.length === 0) {
+			return false;
+		}
+		if (
+			typeof targetConfig.compile.llvm.lldWasm !== 'string' ||
+			targetConfig.compile.llvm.lldWasm.length === 0
+		) {
+			return false;
+		}
+		if (
+			typeof targetConfig.compile.llvm.lldData !== 'string' ||
+			targetConfig.compile.llvm.lldData.length === 0
+		) {
+			return false;
+		}
+		if (
+			typeof targetConfig.sysrootPack?.asset !== 'string' ||
+			targetConfig.sysrootPack.asset.length === 0
+		) {
+			return false;
+		}
+		if (
+			typeof targetConfig.sysrootPack.index !== 'string' ||
+			targetConfig.sysrootPack.index.length === 0
+		) {
+			return false;
+		}
+		if (
+			typeof targetConfig.compile.link?.pack?.asset !== 'string' ||
+			targetConfig.compile.link.pack.asset.length === 0
+		) {
+			return false;
+		}
+		if (
+			typeof targetConfig.compile.link.pack.index !== 'string' ||
+			targetConfig.compile.link.pack.index.length === 0
+		) {
+			return false;
+		}
+		referencedAssets.add(targetConfig.compile.llvm.llc);
+		referencedAssets.add(targetConfig.compile.llvm.llcWasm);
+		referencedAssets.add(targetConfig.compile.llvm.lld);
+		referencedAssets.add(targetConfig.compile.llvm.lldWasm);
+		referencedAssets.add(targetConfig.compile.llvm.lldData);
+		referencedAssets.add(targetConfig.sysrootPack.asset);
+		referencedAssets.add(targetConfig.sysrootPack.index);
+		referencedAssets.add(targetConfig.compile.link.pack.asset);
+		referencedAssets.add(targetConfig.compile.link.pack.index);
+	}
+	for (const relativePath of referencedAssets) {
+		if (!(await pathExists(path.join(runtimeRootPath, relativePath)))) {
+			return false;
+		}
+	}
+	return true;
 }
 
 async function copyFileIfNeeded(sourcePath, targetPath) {
@@ -881,9 +967,37 @@ async function buildRuntimePackReference({
 }
 
 async function main() {
+	await copyBrowserVendorAssets();
+	const foundationalRuntimeInputs = [
+		path.join(wasmRustcRoot, 'bin', 'rustc.wasm'),
+		path.join(llvmWasmRoot, 'llc.js'),
+		path.join(llvmWasmRoot, 'llc.wasm'),
+		path.join(llvmWasmRoot, 'lld.js'),
+		path.join(llvmWasmRoot, 'lld.wasm'),
+		path.join(llvmWasmRoot, 'lld.data')
+	];
+	const missingFoundationalRuntimeInputs = [];
+	for (const sourcePath of foundationalRuntimeInputs) {
+		if (!(await pathExists(sourcePath))) {
+			missingFoundationalRuntimeInputs.push(sourcePath);
+		}
+	}
+	if (missingFoundationalRuntimeInputs.length > 0) {
+		if (
+			allowPrebuiltRuntimeFallback &&
+			(await isReusablePrebuiltRuntimeBundle(runtimeRoot))
+		) {
+			console.warn(
+				`[wasm-rust] reusing prebuilt dist/runtime bundle because prepare-runtime inputs are unavailable: ${missingFoundationalRuntimeInputs.join(', ')}`
+			);
+			return;
+		}
+		throw new Error(
+			`missing runtime preparation inputs: ${missingFoundationalRuntimeInputs.join(', ')}`
+		);
+	}
 	await fs.rm(runtimeRoot, { recursive: true, force: true });
 	await ensureDirectory(runtimeRoot);
-	await copyBrowserVendorAssets();
 
 	const rustcTargetPath = path.join(runtimeRoot, 'rustc', 'rustc.wasm');
 	await copyFileIfNeeded(path.join(wasmRustcRoot, 'bin', 'rustc.wasm'), rustcTargetPath);
@@ -1040,6 +1154,7 @@ if (isDirectExecution) {
 
 export {
 	distRoot,
+	isReusablePrebuiltRuntimeBundle,
 	llvmWasmRoot,
 	matchingNativeToolchainRoot,
 	parseRuntimePrecompressionScopes,

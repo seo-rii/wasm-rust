@@ -34,8 +34,18 @@ jobs:
       - name: Install Chromium
         run: pnpm dlx playwright@1.58.2 install --with-deps chromium
 
+      - name: Hydrate Latest Release Runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts
+          gh release download --pattern 'wasm-rust-*.tgz' --dir artifacts --clobber
+          tar -xzf "$(find artifacts -maxdepth 1 -name 'wasm-rust-*.tgz' -print -quit)" dist/runtime
+
       - name: Typecheck
         run: pnpm run typecheck
 
       - name: Run Standalone Browser Validation
+        env:
+          WASM_RUST_ALLOW_PREBUILT_RUNTIME_FALLBACK: '1'
         run: pnpm run validate:standalone-browser

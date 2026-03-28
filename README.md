@@ -251,6 +251,8 @@ pnpm run probe:browser-harness
   - runs the normal test suite
 - `pnpm run test:ci:browser`
   - canonical browser CI lane: `build + probe + browser vitest + browser playwright`
+  - clean GitHub runners hydrate the latest release `dist/runtime` bundle first and let
+    `prepare-runtime` reuse it when local toolchain caches are unavailable
 - `pnpm run validate:standalone-browser`
   - full repo-owned validation: `test:ci:fast` followed by `test:ci:browser`
 - `pnpm run serve:browser-harness`
