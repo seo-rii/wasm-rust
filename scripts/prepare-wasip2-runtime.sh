@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_RUST_CACHE_ROOT="${HOME}/.cache/wasm-rust-real-rustc-20260317/rust"
 
 if [[ "${1:-}" == "--help" ]]; then
   cat <<'EOF'
@@ -32,8 +33,8 @@ elif [[ $# -gt 0 ]]; then
   exit 2
 fi
 
-rustc_root="${WASM_RUST_RUSTC_ROOT:-/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir}"
-matching_native_toolchain_root="${WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT:-/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2}"
+rustc_root="${WASM_RUST_RUSTC_ROOT:-${DEFAULT_RUST_CACHE_ROOT}/dist-emit-ir}"
+matching_native_toolchain_root="${WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT:-${DEFAULT_RUST_CACHE_ROOT}/build/x86_64-unknown-linux-gnu/stage2}"
 matching_native_sysroot_root="${WASM_RUST_MATCHING_NATIVE_SYSROOT_ROOT:-$rustc_root}"
 wasi_sdk_root="${WASM_RUST_WASI_SDK_ROOT:-${WASI_SDK_PATH:-}}"
 runtime_target_triples="${WASM_RUST_RUNTIME_TARGET_TRIPLES:-wasm32-wasip1,wasm32-wasip2}"

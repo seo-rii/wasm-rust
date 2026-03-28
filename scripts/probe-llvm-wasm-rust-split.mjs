@@ -9,7 +9,7 @@ const execFileAsync = promisify(execFile);
 
 const rustToolchainRoot =
 	process.env.WASM_RUST_NATIVE_TOOLCHAIN_ROOT ||
-	'/home/seorii/.rustup/toolchains/nightly-2024-04-12-x86_64-unknown-linux-gnu';
+	path.join(os.homedir(), '.rustup', 'toolchains', 'nightly-2024-04-12-x86_64-unknown-linux-gnu');
 const rustcPath = path.join(rustToolchainRoot, 'bin', 'rustc');
 const rustLldPath = path.join(
 	rustToolchainRoot,
@@ -21,7 +21,8 @@ const rustLldPath = path.join(
 );
 const rustTargetTriple = process.env.WASM_RUST_NATIVE_TARGET_TRIPLE || 'wasm32-wasip1';
 const sampleProgram = process.env.WASM_RUST_SAMPLE_PROGRAM || 'fn main() { println!("hi"); }';
-const llvmWasmRoot = process.env.WASM_RUST_LLVM_WASM_ROOT || '/tmp/llvm-wasm-20260317';
+const llvmWasmRoot =
+	process.env.WASM_RUST_LLVM_WASM_ROOT || path.join(os.homedir(), '.cache', 'llvm-wasm-20260319');
 
 async function main() {
 	const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wasm-rust-llvm-wasm-'));

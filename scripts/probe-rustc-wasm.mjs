@@ -18,7 +18,7 @@ import { NodePreopenDirectory } from './wasi-node-fs.mjs';
 
 const DEFAULT_WASM_RUSTC_ROOT = '/tmp/wasm-rustc-20260315';
 const DEFAULT_TOOLCHAIN_ROOT =
-	'/home/seorii/.rustup/toolchains/nightly-2024-04-12-x86_64-unknown-linux-gnu';
+	path.join(os.homedir(), '.rustup', 'toolchains', 'nightly-2024-04-12-x86_64-unknown-linux-gnu');
 const DEFAULT_TARGET_TRIPLE = 'wasm32-wasip1';
 const EXPECTED_TOOLCHAIN_VERSION = 'rustc 1.79.0-nightly (a07f3eb43 2024-04-11)';
 const EXPECTED_WASM_RUSTC_VERSION = 'rustc 1.79.0-dev';

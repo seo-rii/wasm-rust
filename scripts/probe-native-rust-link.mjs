@@ -5,11 +5,19 @@ import { execFileSync } from 'node:child_process';
 
 const DEFAULT_TOOLCHAIN_ROOT =
 	process.env.WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT ||
-	'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2';
+	path.join(
+		os.homedir(),
+		'.cache',
+		'wasm-rust-real-rustc-20260317',
+		'rust',
+		'build',
+		'x86_64-unknown-linux-gnu',
+		'stage2'
+	);
 const DEFAULT_SYSROOT_ROOT =
 	process.env.WASM_RUST_MATCHING_NATIVE_SYSROOT_ROOT ||
 	process.env.WASM_RUST_RUSTC_ROOT ||
-	'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir';
+	path.join(os.homedir(), '.cache', 'wasm-rust-real-rustc-20260317', 'rust', 'dist-emit-ir');
 const SAMPLE_PROGRAM = process.env.WASM_RUST_SAMPLE_PROGRAM || 'fn main() { println!("hi"); }\n';
 const TARGET_TRIPLES = [...new Set(
 	(process.env.WASM_RUST_NATIVE_TARGET_TRIPLES || 'wasm32-wasip1,wasm32-wasip2')

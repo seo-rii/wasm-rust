@@ -3,23 +3,25 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const workspaceRoot = path.resolve(projectRoot, '..');
 const rustToolchainRoot =
 	process.env.WASM_RUST_NATIVE_TOOLCHAIN_ROOT ||
-	'/home/seorii/.rustup/toolchains/nightly-2024-04-12-x86_64-unknown-linux-gnu';
+	path.join(os.homedir(), '.rustup', 'toolchains', 'nightly-2024-04-12-x86_64-unknown-linux-gnu');
 const rustcPath = path.join(rustToolchainRoot, 'bin', 'rustc');
 const rustLldPath = path.join(rustToolchainRoot, 'lib', 'rustlib', 'x86_64-unknown-linux-gnu', 'bin', 'rust-lld');
 const rustTargetTriple = process.env.WASM_RUST_NATIVE_TARGET_TRIPLE || 'wasm32-wasip1';
 const sampleProgram = process.env.WASM_RUST_SAMPLE_PROGRAM || 'fn main() { println!("hi"); }';
 const wasmIdleRoot =
-	process.env.WASM_RUST_WASM_IDLE_ROOT || '/home/seorii/dev/hancomac/wasm-idle';
+	process.env.WASM_RUST_WASM_IDLE_ROOT || path.join(workspaceRoot, 'wasm-idle');
 const staticRoot = path.join(wasmIdleRoot, 'static');
 const wabtInterpPath =
 	process.env.WASM_RUST_WABT_INTERP ||
-	'/home/seorii/dev/hancomac/wasm-rust/node_modules/.bin/wasm-interp';
+	path.join(projectRoot, 'node_modules', '.bin', 'wasm-interp');
 
 function normalizeMemfsPath(inputPath) {
 	return inputPath.replaceAll(path.sep, '/').replace(/^\/+/, '');

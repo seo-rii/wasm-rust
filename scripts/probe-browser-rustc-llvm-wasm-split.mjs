@@ -3,20 +3,29 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-const projectRoot = '/home/seorii/dev/hancomac/wasm-rust';
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultWasmRustcRoot =
 	process.env.WASM_RUST_RUSTC_ROOT ||
-	'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/dist-emit-ir';
+	path.join(os.homedir(), '.cache', 'wasm-rust-real-rustc-20260317', 'rust', 'dist-emit-ir');
 const defaultToolchainRoot = process.env.WASM_RUST_TOOLCHAIN_ROOT || defaultWasmRustcRoot;
 const matchingNativeToolchainRoot =
 	process.env.WASM_RUST_MATCHING_NATIVE_TOOLCHAIN_ROOT ||
-	'/home/seorii/.cache/wasm-rust-real-rustc-20260317/rust/build/x86_64-unknown-linux-gnu/stage2';
+	path.join(
+		os.homedir(),
+		'.cache',
+		'wasm-rust-real-rustc-20260317',
+		'rust',
+		'build',
+		'x86_64-unknown-linux-gnu',
+		'stage2'
+	);
 const llvmWasmRoot =
-	process.env.WASM_RUST_LLVM_WASM_ROOT || '/home/seorii/.cache/llvm-wasm-20260319';
+	process.env.WASM_RUST_LLVM_WASM_ROOT || path.join(os.homedir(), '.cache', 'llvm-wasm-20260319');
 const targetTriple = process.env.WASM_RUST_TARGET_TRIPLE || 'wasm32-wasip1';
 const sampleProgram = process.env.WASM_RUST_SAMPLE_PROGRAM || 'fn main() { println!("hi"); }';
 const browserProbeTimeoutMs = Number(process.env.WASM_RUST_BROWSER_PROBE_TIMEOUT_MS || '180000');

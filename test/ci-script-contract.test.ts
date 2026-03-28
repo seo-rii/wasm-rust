@@ -52,4 +52,20 @@ describe('ci script contract', () => {
 		);
 		expect(workflow).toContain('pnpm run validate:standalone-browser');
 	});
+
+	it('keeps repo-owned prepare and probe scripts free of user-specific absolute paths', async () => {
+		const scriptPaths = [
+			'scripts/prepare-wasip2-runtime.sh',
+			'scripts/prepare-wasip3-runtime.sh',
+			'scripts/probe-browser-clang-rust-split.mjs',
+			'scripts/probe-browser-rustc-llvm-wasm-split.mjs',
+			'scripts/probe-llvm-wasm-rust-split.mjs',
+			'scripts/probe-native-rust-link.mjs',
+			'scripts/probe-rustc-wasm.mjs'
+		];
+		for (const relativeScriptPath of scriptPaths) {
+			const contents = await readFile(path.join(projectRoot, relativeScriptPath), 'utf8');
+			expect(contents).not.toContain('/home/seorii');
+		}
+	});
 });
