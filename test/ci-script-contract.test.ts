@@ -45,6 +45,7 @@ describe('ci script contract', () => {
 		expect(fastScript).toContain('test/rustc-runtime.test.ts');
 		expect(workflow).toContain('gh release download --pattern \'wasm-rust-*.tgz\'');
 		expect(workflow).toContain("WASM_RUST_ALLOW_PREBUILT_RUNTIME_FALLBACK: '1'");
+		expect(workflow).toContain('uses: pnpm/action-setup@v5');
 		expect(workflow).toContain('uses: actions/checkout@v6');
 		expect(workflow).toContain('uses: actions/setup-node@v6');
 		expect(workflow).toContain(
