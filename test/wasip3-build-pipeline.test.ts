@@ -1304,13 +1304,11 @@ wait "$child"
 
 		for (let attempt = 0; attempt < 20; attempt += 1) {
 			try {
-				await execFileAsync('kill', ['-0', String(activePid)], {
-					cwd: projectRoot,
-					maxBuffer: 8 * 1024 * 1024
-				});
+				process.kill(activePid, 0);
 				break;
 			} catch (error) {
-				if (attempt === 19) {
+				const signalError = error as NodeJS.ErrnoException;
+				if (attempt === 19 || signalError.code !== 'ESRCH') {
 					throw error;
 				}
 				await new Promise((resolve) => setTimeout(resolve, 100));
@@ -1335,13 +1333,10 @@ wait "$child"
 			'reusing existing detached build instead of spawning a duplicate'
 		);
 		try {
-			await execFileAsync('kill', ['-TERM', String(activePid)], {
-				cwd: projectRoot,
-				maxBuffer: 8 * 1024 * 1024
-			});
+			process.kill(activePid, 'SIGTERM');
 		} catch (error) {
-			const errno = error as NodeJS.ErrnoException;
-			if (errno.code !== 'ESRCH') {
+			const signalError = error as NodeJS.ErrnoException;
+			if (signalError.code !== 'ESRCH') {
 				throw error;
 			}
 		}
