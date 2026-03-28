@@ -25,7 +25,11 @@ const matchingNativeToolchainRoot =
 		'stage2'
 	);
 
-async function runNode(args: string[], env: NodeJS.ProcessEnv = {}) {
+async function runNode(
+	args: string[],
+	env: NodeJS.ProcessEnv = {},
+	options: { timeoutMs?: number } = {}
+) {
 	const childEnv: NodeJS.ProcessEnv = {
 		...process.env,
 		...env
@@ -46,7 +50,8 @@ async function runNode(args: string[], env: NodeJS.ProcessEnv = {}) {
 		await execFileAsync('/bin/bash', ['-lc', shellCommand], {
 			cwd: projectRoot,
 			env: childEnv,
-			maxBuffer: 64 * 1024 * 1024
+			maxBuffer: 64 * 1024 * 1024,
+			timeout: options.timeoutMs
 		});
 		return {
 			stdout: await fs.readFile(stdoutPath, 'utf8').catch(() => ''),
@@ -74,15 +79,30 @@ function parseJsonOutput(stdout: string, stderr = '') {
 }
 
 describe('real-rust backend probes', () => {
-	it('records the current wasm-idle clang incompatibility with Rust 1.79 LLVM IR', async () => {
-		await expect(
-			runNode([
-				'--loader',
-				'./scripts/node-js-extension-loader.mjs',
-				'./scripts/probe-browser-clang-rust-split.mjs'
-			])
-		).rejects.toBeTruthy();
-	});
+	it(
+		'records the current wasm-idle clang incompatibility with Rust 1.79 LLVM IR',
+		async () => {
+			const probeError = (await runNode(
+				[
+					'--loader',
+					'./scripts/node-js-extension-loader.mjs',
+					'./scripts/probe-browser-clang-rust-split.mjs'
+				],
+				{},
+				{ timeoutMs: 30_000 }
+			).catch((error) => error)) as NodeJS.ErrnoException & {
+				stdout?: string;
+				stderr?: string;
+			};
+			if (!probeError) {
+				throw new Error('expected browser clang incompatibility probe to fail');
+			}
+			const output = probeError.stderr?.trim() || probeError.stdout?.trim() || '';
+			expect(output).toContain('"success": false');
+			expect(output).toContain('Failed to lower Rust LLVM IR with browser clang');
+		},
+		30_000
+	);
 
 	it('links Rust 1.79 textual LLVM IR through llvm-wasm llc/lld when available', async () => {
 		try {
