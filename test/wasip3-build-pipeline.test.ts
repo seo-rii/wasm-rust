@@ -1264,6 +1264,7 @@ printf '%s\\n' "\${CARGO_INCREMENTAL:-}" > ${JSON.stringify(recordedIncrementalP
 		const llvmBuildDir = path.join(root, 'llvm', 'build');
 		const configPath = path.join(rustRoot, 'config.wasm-rust-browser.toml');
 		const logPath = path.join(root, 'wasm-rust-custom-toolchain.log');
+		const pidPath = path.join(root, 'wasm-rust-custom-toolchain.pid');
 		const exitPath = path.join(root, 'wasm-rust-custom-toolchain.exit.txt');
 		const snapshotPath = path.join(root, 'build-custom-rustc-toolchain.snapshot.sh');
 
@@ -1302,9 +1303,16 @@ wait "$child"
 			'build-custom-rustc-toolchain'
 		);
 
+		let stablePid = activePid;
 		for (let attempt = 0; attempt < 20; attempt += 1) {
 			try {
-				process.kill(activePid, 0);
+				const pidContents = (await fs.readFile(pidPath, 'utf8')).trim();
+				const candidatePid = Number.parseInt(pidContents, 10);
+				if (!Number.isInteger(candidatePid)) {
+					throw new Error(`invalid detached build pid file contents: ${pidContents}`);
+				}
+				process.kill(candidatePid, 0);
+				stablePid = candidatePid;
 				break;
 			} catch (error) {
 				const signalError = error as NodeJS.ErrnoException;
@@ -1328,12 +1336,12 @@ wait "$child"
 			},
 			maxBuffer: 8 * 1024 * 1024
 		});
-		expect(Number.parseInt(secondRun.stdout.trim(), 10)).toBe(activePid);
+		expect(Number.parseInt(secondRun.stdout.trim(), 10)).toBe(stablePid);
 		await expect(fs.readFile(logPath, 'utf8')).resolves.toContain(
 			'reusing existing detached build instead of spawning a duplicate'
 		);
 		try {
-			process.kill(activePid, 'SIGTERM');
+			process.kill(stablePid, 'SIGTERM');
 		} catch (error) {
 			const signalError = error as NodeJS.ErrnoException;
 			if (signalError.code !== 'ESRCH') {
@@ -1342,7 +1350,7 @@ wait "$child"
 		}
 		const watchResult = await execFileAsync(
 			'node',
-			['./scripts/watch-process.mjs', '--pid', String(activePid), '--timeout-seconds', '10'],
+			['./scripts/watch-process.mjs', '--pid', String(stablePid), '--timeout-seconds', '10'],
 			{
 				cwd: projectRoot,
 				env: {
